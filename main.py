@@ -1,4 +1,6 @@
 import json
+import html
+import secrets
 import asyncio
 import io
 import os
@@ -40,7 +42,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, https_only=False, same_site="lax")
 
 if os.path.exists("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -50,8 +52,8 @@ def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 def verify_password(plain_password: str, stored_password: str) -> bool:
-    if plain_password == stored_password: return True
-    return hash_password(plain_password) == stored_password
+    if secrets.compare_digest(plain_password, stored_password): return True
+    return secrets.compare_digest(hash_password(plain_password), stored_password)
 
 # ==========================================
 # МОДЕЛІ БД
@@ -76,6 +78,9 @@ class Business(Base):
     wins_branch_id: Mapped[Optional[str]] = mapped_column(Text)
     doctor_eleks_token: Mapped[Optional[str]] = mapped_column(Text)
     doctor_eleks_clinic_id: Mapped[Optional[str]] = mapped_column(Text)
+    altegio_token: Mapped[Optional[str]] = mapped_column(Text)
+    altegio_company_id: Mapped[Optional[str]] = mapped_column(Text)
+    working_hours: Mapped[Optional[str]] = mapped_column(Text, default="Пн-Нд: 09:00 - 20:00")
     groq_api_key: Mapped[Optional[str]] = mapped_column(Text)
     viber_token: Mapped[Optional[str]] = mapped_column(Text)
     whatsapp_token: Mapped[Optional[str]] = mapped_column(Text)
@@ -215,12 +220,13 @@ def get_layout(content: str, user: User, active: str, scripts: str = ""):
     menu = f"""<a href="/superadmin" class="nav-link {'active' if active=='super' else ''}"><i class="fas fa-user-shield me-2"></i>Адмін</a>""" if is_super else f"""
         <a href="/admin" class="nav-link {'active' if active=='dash' else ''}"><i class="fas fa-chart-line me-2"></i>Панель</a>
         <a href="/admin/klienci" class="nav-link {'active' if active=='kli' else ''}"><i class="fas fa-users me-2"></i>{l['clients']}</a>
+        <a href="/admin/generator" class="nav-link {'active' if active=='gen' else ''}"><i class="fas fa-magic me-2"></i>AI Генератор</a>
         <a href="/admin/settings" class="nav-link {'active' if active=='set' else ''}"><i class="fas fa-cogs me-2"></i>{'Профіль' if is_master else 'Налаштування'}</a>{bot_menu}
         <a href="/admin/chats" class="nav-link {'active' if active=='chats' else ''}"><i class="fas fa-comments me-2"></i>Чати <span id="chatBadge" class="badge bg-danger rounded-pill ms-auto" style="display:none">!</span></a>
         <a href="/admin/help" class="nav-link {'active' if active=='help' else ''}"><i class="fas fa-question-circle me-2"></i>Допомога</a>"""
     return f"""
-    <!DOCTYPE html><html lang="uk" data-bs-theme="light"><head><meta charset="utf-8">
-    <title>CRM Pro</title>
+    <!DOCTYPE html><html lang="uk" data-bs-theme="light" lang="uk"><head><meta charset="utf-8">
+    <title>Safe Orbit CRM</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -248,14 +254,14 @@ def get_layout(content: str, user: User, active: str, scripts: str = ""):
     </style></head>
     <body><div id="app" class="container-fluid"><div class="row">
         <div class="col-md-2 sidebar p-4 d-none d-md-block">
-            <div class="d-flex align-items-center mb-5"><i class="fas fa-bolt text-primary fa-2x me-2"></i><h4 class="m-0 text-white">CRM Pro</h4></div>
+            <div class="d-flex align-items-center mb-5"><i class="fas fa-bolt text-primary fa-2x me-2"></i><h4 class="m-0 text-white">Safe Orbit CRM</h4></div>
             <nav class="nav flex-column gap-1">{menu}</nav>
             <button class="btn btn-outline-secondary w-100 mt-3 btn-sm" onclick="toggleTheme()"><i class="fas fa-adjust me-2"></i>Тема</button>
             <div class="mt-auto pt-5"><a href="/logout" class="nav-link text-danger"><i class="fas fa-sign-out-alt me-2"></i>Вихід</a></div>
         </div>
         <div class="col-md-10 p-4">
             <div class="d-flex justify-content-between align-items-center mb-5">
-                <div><h3 class="m-0">Вітаємо, {user.username} 👋</h3><small class="text-muted">Панель керування</small></div>
+                <div><h3 class="m-0">Вітаємо, {html.escape(user.username)} 👋</h3><small class="text-muted">Панель керування</small></div>
                 <div class="bg-white px-4 py-2 rounded-pill shadow-sm"><i class="far fa-clock me-2 text-primary"></i>{now}</div>
             </div>
             {content}
@@ -265,6 +271,13 @@ def get_layout(content: str, user: User, active: str, scripts: str = ""):
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script>
+        function showToast(msg, type = 'success') {
+            const toastEl = document.getElementById('liveToast');
+            const toastBody = document.getElementById('toastMsg');
+            if (!toastEl || !toastBody) return;
+            toastBody.innerText = msg;
+            new bootstrap.Toast(toastEl).show();
+        }
         function toggleTheme() {{
             const html = document.documentElement;
             const current = html.getAttribute('data-bs-theme');
@@ -362,11 +375,11 @@ async def owner_dash(user: User = Depends(get_current_user), db: AsyncSession = 
         d_str = a.appointment_time.strftime('%Y-%m-%d')
         t_str = a.appointment_time.strftime('%H:%M')
         badge = status_badges.get(a.status, "<span class='badge bg-secondary'>Інше</span>")
-        master_name = f"<br><small class='text-muted'><i class='fas fa-user-tie me-1'></i>{a.master.name}</small>" if a.master else ""
+        master_name = f"<br><small class='text-muted'><i class='fas fa-user-tie me-1'></i>{html.escape(a.master.name)}</small>" if a.master else ""
         rows += f"""<tr class='align-middle'>
-            <td><div class='fw-bold'>{a.customer.name or 'Невідомий'}</div><small class='text-muted'>{a.customer.phone_number}</small></td>
+            <td><div class='fw-bold'>{html.escape(a.customer.name or 'Невідомий')}</div><small class='text-muted'>{html.escape(a.customer.phone_number)}</small></td>
             <td>{d_str} {t_str}</td>
-            <td>{a.service_type}{master_name}</td>
+            <td>{html.escape(a.service_type)}{master_name}</td>
             <td class='fw-bold text-success'>{a.cost:.0f} грн</td>
             <td>{badge}</td>
             <td class='text-end'>
@@ -668,34 +681,42 @@ async def add_appointment(
 
     try:
         dt = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
+        final_service = custom_service if service == 'custom' else service
         
         # 1. Перевірка зайнятості часу (Overlap Check)
-        duration = 90
-        if service != 'custom' and service:
-             srv = (await db.execute(select(Service).where(and_(Service.name == service, Service.business_id == user.business_id)))).scalar_one_or_none()
-             if srv: duration = srv.duration
+        duration = 90 # За замовчуванням
+        if final_service:
+            srv = (await db.execute(select(Service).where(and_(Service.name == final_service, Service.business_id == user.business_id)))).scalar_one_or_none()
+            if srv and srv.duration: duration = srv.duration
 
-        end_time = dt + timedelta(minutes=duration)
+        new_start = dt
+        new_end = dt + timedelta(minutes=duration)
         
+        # Отримуємо всі записи на цей день для перевірки
+        day_start = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start + timedelta(days=1)
+
         stmt_overlap = select(Appointment).where(
             and_(
                 Appointment.business_id == user.business_id,
                 Appointment.status != 'cancelled',
-                Appointment.appointment_time >= dt - timedelta(minutes=180),
-                Appointment.appointment_time <= end_time
+                Appointment.appointment_time >= day_start,
+                Appointment.appointment_time < day_end
             )
         )
-        existing_apps = (await db.execute(stmt_overlap)).scalars().all()
+        existing_apps_on_day = (await db.execute(stmt_overlap)).scalars().all()
         
-        for app in existing_apps:
-            app_duration = 90
+        for app in existing_apps_on_day:
+            # Визначаємо тривалість існуючого запису
+            app_duration = 90 # За замовчуванням
             s_existing = (await db.execute(select(Service).where(and_(Service.name == app.service_type, Service.business_id == user.business_id)))).scalar_one_or_none()
-            if s_existing: app_duration = s_existing.duration
+            if s_existing and s_existing.duration: app_duration = s_existing.duration
             
             app_start = app.appointment_time
             app_end = app_start + timedelta(minutes=app_duration)
             
-            if app_start < end_time and app_end > dt:
+            # Перевірка перетину: (StartA < EndB) and (EndA > StartB)
+            if new_start < app_end and new_end > app_start:
                 return RedirectResponse("/admin?msg=time_taken", status_code=303)
 
         # 2. Робота з клієнтом (Тільки якщо час вільний)
@@ -708,7 +729,6 @@ async def add_appointment(
             await db.flush()
             await db.refresh(cust)
         
-        final_service = custom_service if service == 'custom' else service
         m_id = int(master_id) if master_id and master_id.isdigit() else None
 
         new_app = Appointment(
@@ -1016,7 +1036,7 @@ async def bot_integration_page(request: Request, user: User = Depends(get_curren
             <form action="/admin/save-master-bot-settings" method="post">
                 <div class="mb-3">
                     <label class="form-label small text-muted">Ваш Telegram Chat ID (для сповіщень)</label>
-                    <input name="tg_id" class="form-control bg-light border-0" value="{master.telegram_chat_id or ''}" placeholder="123456789">
+                    <input name="tg_id" class="form-control bg-light border-0" value="{html.escape(master.telegram_chat_id or '')}" placeholder="123456789">
                     <div class="form-text">Напишіть боту <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a>, щоб дізнатися свій ID.</div>
                 </div>
                 <button class="btn btn-primary w-100">Зберегти</button>
@@ -1028,7 +1048,8 @@ async def bot_integration_page(request: Request, user: User = Depends(get_curren
         "none": "Немає",
         "beauty_pro": "Beauty Pro",
         "wins": "WINS",
-        "doctor_eleks": "Doctor Eleks"
+        "doctor_eleks": "Doctor Eleks",
+        "altegio": "Altegio (Yclients)"
     }
     integration_options = "".join([f'<option value="{k}" {"selected" if biz.integration_system == k else ""}>{v}</option>' for k, v in integration_systems.items()])
 
@@ -1115,6 +1136,13 @@ async def bot_integration_page(request: Request, user: User = Depends(get_curren
                         <div class="mb-3"><label class="form-label small text-muted">ID Клініки (Clinic ID)</label><input name="de_clinic_id" class="form-control bg-light border-0" value="{biz.doctor_eleks_clinic_id or ''}"></div>
                     </div>
 
+                    <!-- Altegio Form -->
+                    <div id="form-altegio" class="integration-form" style="display: none;">
+                        <h6 class="mt-4 mb-3 text-muted border-bottom pb-2">Налаштування Altegio</h6>
+                        <div class="mb-3"><label class="form-label small text-muted">Altegio User Token</label><input name="altegio_token" class="form-control bg-light border-0" value="{biz.altegio_token or ''}"></div>
+                        <div class="mb-3"><label class="form-label small text-muted">ID Компанії</label><input name="altegio_company_id" class="form-control bg-light border-0" value="{biz.altegio_company_id or ''}"></div>
+                    </div>
+
                     <button class="btn btn-primary w-100 mt-3">Зберегти налаштування інтеграції</button>
                 </form>
             </div>
@@ -1167,6 +1195,8 @@ async def save_integration_settings(
     wins_branch_id: str = Form(None),
     de_token: str = Form(None),
     de_clinic_id: str = Form(None),
+    altegio_token: str = Form(None),
+    altegio_company_id: str = Form(None),
     user: User = Depends(get_current_user), 
     db: AsyncSession = Depends(get_db)
 ):
@@ -1179,6 +1209,8 @@ async def save_integration_settings(
     biz.wins_branch_id = wins_branch_id
     biz.doctor_eleks_token = de_token
     biz.doctor_eleks_clinic_id = de_clinic_id
+    biz.altegio_token = altegio_token
+    biz.altegio_company_id = altegio_company_id
     await db.commit()
     return RedirectResponse("/admin/bot-integration?msg=saved", status_code=303)
 
@@ -1300,6 +1332,7 @@ async def process_ai_request(business_id: int, question: str, db: AsyncSession, 
         greeting_instruction = "СУВОРА ІНСТРУКЦІЯ: ТИ ВЖЕ ВІТАВСЯ СЬОГОДНІ. НЕ КАЖИ 'Добрий день', 'Привіт', 'Вітаю'. Одразу відповідай на запит."
 
     system_instruction = f"""{biz.system_prompt or 'Ви корисний асистент.'}
+    Графік роботи: {biz.working_hours or 'Не вказано'}
     {greeting_instruction}
     Сьогоднішня дата: {datetime.now(UA_TZ).strftime('%Y-%m-%d, %A')}.
     Тобі КАТЕГОРИЧНО ЗАБОРОНЕНО називати імена інших клієнтів із бази даних.
@@ -1356,9 +1389,35 @@ async def process_ai_request(business_id: int, question: str, db: AsyncSession, 
                     
                     dt = datetime.strptime(f"{data['date']} {data['time']}", "%Y-%m-%d %H:%M")
                     
-                    existing = await db.scalar(select(Appointment).where(and_(Appointment.business_id == business_id, Appointment.appointment_time == dt, Appointment.status != 'cancelled')))
-                    if existing:
-                        return f"⚠️ Час {data['time']} вже зайнятий!"
+                    # Перевірка перетину часу
+                    duration = 90 # За замовчуванням
+                    service_name = data.get('service')
+                    if service_name:
+                        srv = (await db.execute(select(Service).where(and_(Service.name == service_name, Service.business_id == business_id)))).scalar_one_or_none()
+                        if srv and srv.duration: duration = srv.duration
+                    
+                    new_start = dt
+                    new_end = dt + timedelta(minutes=duration)
+
+                    day_start = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+                    day_end = day_start + timedelta(days=1)
+                    
+                    stmt_overlap = select(Appointment).where(and_(
+                        Appointment.business_id == business_id,
+                        Appointment.status != 'cancelled',
+                        Appointment.appointment_time >= day_start,
+                        Appointment.appointment_time < day_end
+                    ))
+                    existing_apps_on_day = (await db.execute(stmt_overlap)).scalars().all()
+
+                    for app in existing_apps_on_day:
+                        app_duration = 90 # За замовчуванням
+                        s_existing = (await db.execute(select(Service).where(and_(Service.name == app.service_type, Service.business_id == business_id)))).scalar_one_or_none()
+                        if s_existing and s_existing.duration: app_duration = s_existing.duration
+                        app_start = app.appointment_time
+                        app_end = app_start + timedelta(minutes=app_duration)
+                        if new_start < app_end and new_end > app_start:
+                            return f"⚠️ На жаль, час о {data['time']} вже зайнятий. Будь ласка, оберіть інший."
 
                     new_app = Appointment(
                         business_id=business_id,
@@ -1384,6 +1443,11 @@ async def process_ai_request(business_id: int, question: str, db: AsyncSession, 
                         if result and result.get("status") == "success":
                             sync_msg = f"\n\n({result.get('msg')})"
                     # TODO: Add other integrations like WINS, Doctor Eleks
+                    
+                    # ALTEGIO STUB (Логіка буде додана пізніше)
+                    if biz.integration_system == "altegio" and biz.altegio_token:
+                        pass
+
                     return f"✅ Запис створено!\n{data['date']} {data['time']}\n{name}\n{data.get('service')}\nСума: {data.get('cost')} грн{sync_msg}"
         except Exception as e:
             pass
@@ -1544,15 +1608,14 @@ async def super_admin_page(user: User = Depends(get_current_user), db: AsyncSess
     for b in bizs:
         rows += f"""<tr class='align-middle'>
             <td><span class='text-muted'>#{b.id}</span></td>
-            <td><div class='fw-bold'>{b.name}</div><small class='text-muted'>{b.type}</small></td>
-            <td><span class='badge bg-secondary'>{counts.get(b.id, 0)} записів</span></td>
+            <td><div class='fw-bold'>{html.escape(b.name)}</div><small class='text-muted'>{html.escape(b.type)}</small></td>
             <td><span class='badge {'bg-success' if b.is_active else 'bg-danger'}'>{'АКТИВНИЙ' if b.is_active else 'ЗАБЛОКОВАНИЙ'}</span></td>
             <td><span class='badge {'bg-info text-dark' if b.has_ai_bot else 'bg-light text-muted'}'>{'Увімкнено' if b.has_ai_bot else 'Вимкнено'}</span></td>
             <td class='text-end'>
                 <div class="btn-group">
                     <a href='/superadmin/toggle/{b.id}' class='btn btn-sm btn-outline-secondary' title="Блокувати"><i class='fas fa-power-off'></i></a>
                     <a href='/superadmin/toggle-ai/{b.id}' class='btn btn-sm btn-outline-primary' title="AI Бот"><i class='fas fa-robot'></i></a>
-                    <button class='btn btn-sm btn-outline-warning' onclick="resetPass({b.id}, '{b.name}')" title="Скинути пароль"><i class='fas fa-key'></i></button>
+                    <button class='btn btn-sm btn-outline-warning' onclick="resetPass({b.id}, '{html.escape(b.name, quote=True)}')" title="Скинути пароль"><i class='fas fa-key'></i></button>
                     <button class='btn btn-sm btn-outline-danger' onclick="deleteBiz({b.id})" title="Видалити"><i class='fas fa-trash'></i></button>
                 </div>
             </td>
@@ -1652,6 +1715,10 @@ async def ai_settings_page(request: Request, user: User = Depends(get_current_us
     masters = (await db.execute(select(Master).options(joinedload(Master.services)).where(Master.business_id == user.business_id))).unique().scalars().all()
     services = (await db.execute(select(Service).where(Service.business_id == user.business_id))).scalars().all()
 
+    # Отримуємо користувачів-майстрів для перевірки наявності акаунтів
+    master_users = (await db.execute(select(User).where(and_(User.business_id == user.business_id, User.role == 'master')))).scalars().all()
+    master_user_map = {u.master_id: u.username for u in master_users if u.master_id}
+
     # Адаптація назв
     labels = {
         "barbershop": {"masters": "👥 Майстри", "services": "💰 Послуги (Прайс)", "master_single": "Майстер", "service_single": "Послуга"},
@@ -1669,7 +1736,7 @@ async def ai_settings_page(request: Request, user: User = Depends(get_current_us
     email_inputs_html = ""
     for email in emails:
         email_inputs_html += f"""<div class="input-group mb-2">
-            <input name="email" type="email" class="form-control bg-light border-0" value="{email}" placeholder="example@email.com">
+            <input name="email" type="email" class="form-control bg-light border-0" value="{html.escape(email)}" placeholder="example@email.com">
             <button class="btn btn-outline-danger" type="button" onclick="this.parentElement.remove()">&times;</button>
         </div>"""
 
@@ -1678,7 +1745,7 @@ async def ai_settings_page(request: Request, user: User = Depends(get_current_us
     tg_chat_id_inputs_html = ""
     for chat_id in tg_chat_ids:
         tg_chat_id_inputs_html += f"""<div class="input-group mb-2">
-            <input name="tg_chat_id" class="form-control bg-light border-0" value="{chat_id}" placeholder="Наприклад: -100123456789">
+            <input name="tg_chat_id" class="form-control bg-light border-0" value="{html.escape(chat_id)}" placeholder="Наприклад: -100123456789">
             <button class="btn btn-outline-danger" type="button" onclick="this.parentElement.remove()">&times;</button>
         </div>"""
 
@@ -1696,11 +1763,11 @@ async def ai_settings_page(request: Request, user: User = Depends(get_current_us
             <form action="/admin/update-master-profile" method="post">
                 <div class="mb-3">
                     <label class="form-label text-muted">Ім'я</label>
-                    <input type="text" class="form-control bg-light border-0" value="{master.name}" disabled>
+                    <input type="text" class="form-control bg-light border-0" value="{html.escape(master.name)}" disabled>
                 </div>
                 <div class="mb-3">
                     <label class="form-label text-muted">Токен особистого бота (для запитань)</label>
-                    <input name="bot_token" class="form-control bg-light border-0" value="{master.personal_bot_token or ''}" placeholder="123456:ABC-DEF...">
+                    <input name="bot_token" class="form-control bg-light border-0" value="{html.escape(master.personal_bot_token or '')}" placeholder="123456:ABC-DEF...">
                     <div class="form-text">Створіть бота в <a href="https://t.me/BotFather" target="_blank">@BotFather</a> і вставте токен сюди. Цей бот відповідатиме на ваші питання (напр. "Скільки записів?").</div>
                     <div class="mt-2 small text-muted">Webhook URL (автоматично): <code>{webhook_url}</code></div>
                 </div>
@@ -1714,9 +1781,23 @@ async def ai_settings_page(request: Request, user: User = Depends(get_current_us
         """
         return get_layout(content, user, "set")
 
-    masters_html = "".join([f"<li class='list-group-item d-flex justify-content-between align-items-center'><div><strong>{m.name}</strong><br><small class='text-muted'>{', '.join([s.name for s in m.services])}</small></div> <form action='/admin/delete-master' method='post' style='display:inline'><input type='hidden' name='id' value='{m.id}'><button class='btn btn-sm btn-outline-danger'>&times;</button></form></li>" for m in masters])
+    masters_html = ""
+    for m in masters:
+        acc_btn = ""
+        if m.id in master_user_map:
+            acc_btn = f'<span class="badge bg-success ms-2" title="Логін: {html.escape(master_user_map[m.id])}"><i class="fas fa-user-check"></i></span>'
+        else:
+            acc_btn = f'<button type="button" class="btn btn-sm btn-outline-primary ms-2" onclick="createMasterAccount({m.id}, \'{html.escape(m.name, quote=True)}\')" title="Створити акаунт"><i class="fas fa-user-plus"></i></button>'
+            
+        masters_html += f"""<li class='list-group-item d-flex justify-content-between align-items-center'>
+            <div><strong>{html.escape(m.name)}</strong>{acc_btn}<br><small class='text-muted'>{html.escape(', '.join([s.name for s in m.services]))}</small></div> 
+            <form action='/admin/delete-master' method='post' style='display:inline'>
+                <input type='hidden' name='id' value='{m.id}'><button class='btn btn-sm btn-outline-danger'>&times;</button>
+            </form>
+        </li>"""
+
     services_checkboxes = "".join([f'<div class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="services" value="{s.id}" id="s{s.id}"><label class="form-check-label" for="s{s.id}">{s.name}</label></div>' for s in services])
-    services_html = "".join([f"<li class='list-group-item d-flex justify-content-between align-items-center'><div><strong>{s.name}</strong> <small class='text-muted'>({s.price} грн, {s.duration} хв)</small></div> <form action='/admin/delete-service' method='post' style='display:inline'><input type='hidden' name='id' value='{s.id}'><button class='btn btn-sm btn-outline-danger'>&times;</button></form></li>" for s in services])
+    services_html = "".join([f"<li class='list-group-item d-flex justify-content-between align-items-center'><div><strong>{html.escape(s.name)}</strong> <small class='text-muted'>({s.price} грн, {s.duration} хв)</small></div> <form action='/admin/delete-service' method='post' style='display:inline'><input type='hidden' name='id' value='{s.id}'><button class='btn btn-sm btn-outline-danger'>&times;</button></form></li>" for s in services])
 
     content = f"""
     <style>.nav-pills .nav-link:hover {{ color: var(--primary) !important; background-color: rgba(79, 70, 229, 0.1) !important; }}</style>
@@ -1730,12 +1811,13 @@ async def ai_settings_page(request: Request, user: User = Depends(get_current_us
     <div class="tab-content">
         <div class="tab-pane fade show active" id="pills-ai">
             <div class="card p-4" style="max-width: 800px;">
-                <form action="/admin/save-prompt" method="post">
+                <form onsubmit="saveForm(event, '/admin/save-prompt')">
                     <div class="row mb-3">
                         <div class="col-md-6"><label class="form-label small text-muted">Модель ШІ</label><select name="model" class="form-select bg-light border-0">{model_options}</select></div>
                         <div class="col-md-3"><label class="form-label small text-muted">Температура</label><input name="temp" type="number" step="0.1" min="0" max="1" class="form-control bg-light border-0" value="{biz.ai_temperature}"></div>
                         <div class="col-md-3"><label class="form-label small text-muted">Макс. токенів</label><input name="tokens" type="number" class="form-control bg-light border-0" value="{biz.ai_max_tokens}"></div>
                     </div>
+                    <div class="mb-3"><label class="form-label small text-muted">Графік роботи (для ШІ)</label><input name="working_hours" class="form-control bg-light border-0" value="{biz.working_hours}" placeholder="Пн-Нд: 10:00-20:00"></div>
                     <label class="form-label fw-bold text-muted">Системна інструкція (Prompt)</label>
                     <textarea name="prompt" class="form-control bg-light border-0 p-3 mb-4" rows="10" style="font-family: monospace;">{biz.system_prompt if biz.system_prompt else ""}</textarea>
                     <div class="text-end"><button class="btn btn-primary px-4"><i class="fas fa-save me-2"></i>Зберегти зміни</button></div>
@@ -1749,9 +1831,8 @@ async def ai_settings_page(request: Request, user: User = Depends(get_current_us
                     <h5 class="fw-bold mb-3">Додати {l['master_single']}a</h5>
                     <form action="/admin/add-master" method="post">
                         <div class="mb-3"><input name="name" class="form-control" placeholder="ПІБ" required></div>
-                        <div class="row g-2 mb-3"><div class="col-6"><input name="login" class="form-control" placeholder="Логін (тел)" required></div><div class="col-6"><input name="password" class="form-control" placeholder="Пароль" required></div></div>
                         <div class="card card-body bg-light border-0 p-2"><small class="text-muted mb-2">Навички / Послуги:</small><div class="d-flex flex-wrap gap-2">{services_checkboxes}</div></div>
-                        <button class="btn btn-primary w-100 mt-3">Створити акаунт співробітника</button>
+                        <button class="btn btn-primary w-100 mt-3">Додати співробітника</button>
                     </form>
                 </div></div>
                 <div class="col-md-6"><div class="card p-4 h-100"><h5 class="fw-bold mb-3">Список: {l['masters']}</h5><ul class="list-group list-group-flush">{masters_html}</ul></div></div>
@@ -1776,7 +1857,7 @@ async def ai_settings_page(request: Request, user: User = Depends(get_current_us
             <div class="card p-4" style="max-width: 800px;">
                 <h5 class="fw-bold mb-4">Налаштування сповіщень про нові записи</h5>
                 <p class="small text-muted">Отримуйте миттєві сповіщення, коли клієнт записується через ШІ-асистента.</p>
-                <form action="/admin/save-notification-settings" method="post">
+                <form onsubmit="saveForm(event, '/admin/save-notification-settings')">
                     <div class="mb-3">
                         <div class="d-flex justify-content-between align-items-center">
                             <label class="form-label small text-muted">Email для сповіщень</label>
@@ -1819,9 +1900,50 @@ async def ai_settings_page(request: Request, user: User = Depends(get_current_us
                 </form>
             </div>
         </div>
+        
+        <div class="modal fade" id="createAccountModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content border-0 shadow">
+            <div class="modal-header border-0"><h5 class="modal-title fw-bold">Акаунт для співробітника</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <form action="/admin/create-master-account" method="post">
+                <div class="modal-body">
+                    <input type="hidden" name="id" id="accMasterId">
+                    <p>Співробітник: <strong id="accMasterName"></strong></p>
+                    <div class="mb-3"><input name="login" class="form-control" placeholder="Логін (телефон)" required></div>
+                    <div class="mb-3"><input name="password" class="form-control" placeholder="Пароль" required></div>
+                </div>
+                <div class="modal-footer border-0"><button class="btn btn-primary w-100">Створити акаунт</button></div>
+            </form>
+        </div></div></div>
     </div>"""
     scripts = """
     <script>
+    async function saveForm(event, url) {
+        event.preventDefault();
+        const form = event.target;
+        const formData = new FormData(form);
+        const btn = form.querySelector('button[type="submit"], button:not([type])');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Збереження...';
+        btn.disabled = true;
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+
+            if (data.ok) {
+                showToast('Налаштування успішно збережено!');
+            } else {
+                showToast(data.msg || 'Сталася помилка', 'error');
+            }
+        } catch (e) {
+            showToast('Помилка мережі', 'error');
+        } finally {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
+    }
     function addEmailInput() {
         const container = document.getElementById('email-inputs-container');
         const newDiv = document.createElement('div');
@@ -1836,27 +1958,314 @@ async def ai_settings_page(request: Request, user: User = Depends(get_current_us
         newDiv.innerHTML = `<input name="tg_chat_id" class="form-control bg-light border-0" placeholder="Наприклад: -100123456789"><button class="btn btn-outline-danger" type="button" onclick="this.parentElement.remove()">&times;</button>`;
         container.appendChild(newDiv);
     }
+    function createMasterAccount(id, name) {
+        document.getElementById('accMasterId').value = id;
+        document.getElementById('accMasterName').innerText = name;
+        new bootstrap.Modal(document.getElementById('createAccountModal')).show();
+    }
     </script>
     """
     return get_layout(content, user, "set", scripts)
 
+@app.get("/admin/generator", response_class=HTMLResponse)
+async def prompt_generator_page(user: User = Depends(get_current_user)):
+    if not user: return RedirectResponse("/", status_code=303)
+    
+    content = """
+    <div class="card p-4">
+        <div class="d-flex align-items-center mb-4">
+            <div class="bg-success bg-opacity-10 p-3 rounded-circle me-3"><i class="fas fa-magic text-success fa-2x"></i></div>
+            <div><h4 class="fw-bold m-0">Конструктор Особистості ШІ</h4><small class="text-muted">Налаштуйте поведінку асистента до дрібниць (15+ параметрів)</small></div>
+        </div>
+        
+        <form id="genForm" onsubmit="saveGeneratedPrompt(event)">
+            <div class="row g-3">
+                <!-- Basic -->
+                <div class="col-12"><h6 class="text-primary fw-bold border-bottom pb-2">🎭 Роль та Стиль</h6></div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted">Роль</label>
+                    <select id="genRole" class="form-select bg-light border-0">
+                        <option value="Адміністратор">Адміністратор</option>
+                        <option value="Турботливий помічник">Турботливий помічник</option>
+                        <option value="Експерт-консультант">Експерт-консультант</option>
+                        <option value="Sales-менеджер">Sales-менеджер (Активний)</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted">Тон</label>
+                    <select id="genTone" class="form-select bg-light border-0">
+                        <option value="Діловий">Діловий</option>
+                        <option value="Дружній">Дружній</option>
+                        <option value="Елітний">Елітний/Преміум</option>
+                        <option value="Грайливий">Грайливий</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted">Мова спілкування</label>
+                    <select id="genLang" class="form-select bg-light border-0">
+                        <option value="Українська">Українська</option>
+                        <option value="Англійська">Англійська</option>
+                        <option value="Польська">Польська</option>
+                        <option value="Мультимовний (підлаштовуватись)">Мультимовний</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted">Ім'я асистента</label>
+                    <input id="genName" class="form-control bg-light border-0" placeholder="Напр. Аліна">
+                </div>
+
+                <!-- Behavior -->
+                <div class="col-12 mt-4"><h6 class="text-primary fw-bold border-bottom pb-2">🧠 Поведінка та Реакції</h6></div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted">Емодзі</label>
+                    <select id="genEmoji" class="form-select bg-light border-0">
+                        <option value="Помірно (1-2)">Помірно</option>
+                        <option value="Багато (емоційно)">Багато</option>
+                        <option value="Не використовувати">Без емодзі</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted">Довжина відповідей</label>
+                    <select id="genLength" class="form-select bg-light border-0">
+                        <option value="Лаконічно (коротко)">Лаконічно</option>
+                        <option value="Детально (розгорнуто)">Детально</option>
+                        <option value="Середньо">Середньо</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted">Звернення</label>
+                    <select id="genAddress" class="form-select bg-light border-0">
+                        <option value="На Ви">На Ви</option>
+                        <option value="На Ти">На Ти</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted">Реакція на невідоме</label>
+                    <select id="genUnknown" class="form-select bg-light border-0">
+                        <option value="Кликати адміна">Кликати адміна</option>
+                        <option value="Просити уточнити">Просити уточнити</option>
+                        <option value="Імпровізувати">М'яко обходити</option>
+                    </select>
+                </div>
+
+                <!-- Personality Traits -->
+                <div class="col-12 mt-4"><h6 class="text-primary fw-bold border-bottom pb-2">🌟 Риси Особистості</h6></div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted">Рівень Формальності</label>
+                    <select id="genFormality" class="form-select bg-light border-0">
+                        <option value="Формальний">Формальний</option>
+                        <option value="Напівформальний">Напівформальний</option>
+                        <option value="Неформальний">Неформальний</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted">Гумор</label>
+                    <select id="genHumor" class="form-select bg-light border-0">
+                        <option value="Не використовувати">Не використовувати</option>
+                        <option value="Тонкий та доречний">Тонкий та доречний</option>
+                        <option value="Грайливий та легкий">Грайливий та легкий</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted">Емпатія</label>
+                    <select id="genEmpathy" class="form-select bg-light border-0">
+                        <option value="Високий">Високий</option>
+                        <option value="Середній">Середній</option>
+                        <option value="Низький">Низький</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted">Проактивність</label>
+                    <select id="genProactivity" class="form-select bg-light border-0">
+                        <option value="Проактивний (пропонує рішення)">Проактивний</option>
+                        <option value="Реактивний (відповідає на запити)">Реактивний</option>
+                    </select>
+                </div>
+
+                <!-- Interaction Style -->
+                <div class="col-12 mt-4"><h6 class="text-primary fw-bold border-bottom pb-2">💬 Стиль Взаємодії</h6></div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted">Стиль Запитань</label>
+                    <select id="genQuestionStyle" class="form-select bg-light border-0">
+                        <option value="Прямий та чіткий">Прямий</option>
+                        <option value="М'який та уточнюючий">М'який</option>
+                        <option value="Навідний">Навідний</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted">Стислість Відповідей</label>
+                    <select id="genConciseness" class="form-select bg-light border-0">
+                        <option value="Дуже стисло">Дуже стисло</option>
+                        <option value="Стандартно">Стандартно</option>
+                        <option value="Детально">Детально</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted">Структура Відповіді</label>
+                    <select id="genResponseStructure" class="form-select bg-light border-0">
+                        <option value="Абзаци">Абзаци</option>
+                        <option value="Марковані списки">Марковані списки</option>
+                        <option value="Змішаний">Змішаний</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small text-muted">Рівень Терпіння</label>
+                    <select id="genPatience" class="form-select bg-light border-0">
+                        <option value="Високий">Високий</option>
+                        <option value="Середній">Середній</option>
+                        <option value="Низький">Низький</option>
+                    </select>
+                </div>
+
+                <!-- Options -->
+                <div class="col-12 mt-4"><h6 class="text-primary fw-bold border-bottom pb-2">⚙️ Деталі та Обмеження</h6></div>
+                <div class="col-md-3"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="genConfirm" checked><label class="form-check-label small">Завжди підтверджувати запис</label></div></div>
+                <div class="col-md-3"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="genSales" checked><label class="form-check-label small">Пропонувати вільні вікна (Sales)</label></div></div>
+                <div class="col-md-3"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="genPolite" checked><label class="form-check-label small">Максимальна ввічливість</label></div></div>
+                <div class="col-md-3"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="genPrice"><label class="form-check-label small">Писати "ціна від"</label></div></div>
+                
+                <div class="col-md-3"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="genList" checked><label class="form-check-label small">Списки послуг з нового рядка</label></div></div>
+                <div class="col-md-3"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="genSign"><label class="form-check-label small">Додавати підпис в кінці</label></div></div>
+                <div class="col-md-3"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="genUpsell"><label class="form-check-label small">Активний Upsell/Cross-sell</label></div></div>
+                <div class="col-md-3"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="genUrgency"><label class="form-check-label small">Створювати терміновість</label></div></div>
+
+                <div class="col-md-3"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="genStrictKnowledge"><label class="form-check-label small">Тільки надані дані</label></div></div>
+                <div class="col-md-3"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="genCallToAction" checked><label class="form-check-label small">Завжди CTA</label></div></div>
+                <div class="col-md-6">
+                    <label class="form-label small text-muted">Реакція на повторні запитання</label>
+                    <input id="genRepetitive" class="form-control bg-light border-0" placeholder="Напр. 'Перефразувати, запропонувати FAQ'">
+                </div>
+
+                <div class="col-md-6">
+                    <input id="genForbidden" class="form-control bg-light border-0" placeholder="Заборонені слова (через кому)">
+                </div>
+
+                <div class="col-12 mt-4">
+                    <textarea name="prompt" id="resultPrompt" class="form-control mb-3 font-monospace" rows="8" placeholder="Тут з'явиться згенерований промпт..." required style="background:#f8f9fa; border: 2px dashed #dee2e6; color: #212529;"></textarea>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-warning flex-grow-1 fw-bold text-white" onclick="generatePrompt()"><i class="fas fa-bolt me-2"></i>Згенерувати</button>
+                        <button class="btn btn-success flex-grow-1 fw-bold"><i class="fas fa-save me-2"></i>Зберегти та Застосувати</button>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+    """
+    scripts = """
+    <script>
+    async function saveGeneratedPrompt(event) {
+        event.preventDefault();
+        const form = event.target;
+        const formData = new FormData(form);
+        const btn = form.querySelector('.btn-success');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Збереження...';
+        btn.disabled = true;
+
+        try {
+            const response = await fetch('/admin/save-generated-prompt', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+
+            if (data.ok) {
+                showToast('Промпт успішно збережено та застосовано!');
+            } else {
+                showToast(data.msg || 'Сталася помилка', 'error');
+            }
+        } catch (e) {
+            showToast('Помилка мережі', 'error');
+        } finally {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
+    }
+    function generatePrompt() {
+        try {
+            let p = `Ви - ${document.getElementById('genRole').value}. `;
+            const assistantName = document.getElementById('genName').value;
+            if (assistantName) p += `Ваше ім'я: ${assistantName}.\\n`; else p += `\\n`;
+
+            p += `Мова спілкування: ${document.getElementById('genLang').value}.\\n`;
+            p += `Тон: ${document.getElementById('genTone').value}.\\n`;
+            p += `Стиль звернення: ${document.getElementById('genAddress').value}.\\n`;
+            p += `Емодзі: ${document.getElementById('genEmoji').value}.\\n`;
+            p += `Довжина відповідей: ${document.getElementById('genLength').value}.\\n`;
+            p += `При невідомій ситуації: ${document.getElementById('genUnknown').value}.\\n`;
+            p += `Рівень формальності: ${document.getElementById('genFormality').value}.\\n`;
+            p += `Використання гумору: ${document.getElementById('genHumor').value}.\\n`;
+            p += `Рівень емпатії: ${document.getElementById('genEmpathy').value}.\\n`;
+            p += `Стиль проактивності: ${document.getElementById('genProactivity').value}.\\n`;
+            p += `Стиль запитань: ${document.getElementById('genQuestionStyle').value}.\\n`;
+            p += `Стислість відповідей: ${document.getElementById('genConciseness').value}.\\n`;
+            p += `Структура відповіді: ${document.getElementById('genResponseStructure').value}.\\n`;
+            p += `Рівень терпіння: ${document.getElementById('genPatience').value}.\\n\\n`;
+            
+            if(document.getElementById('genConfirm').checked) p += "- ЗАВЖДИ підтверджуйте деталі запису.\\n";
+            if(document.getElementById('genSales').checked) p += "- Пропонуйте вільні слоти, якщо час зайнятий.\\n";
+            if(document.getElementById('genPolite').checked) p += "- Будьте максимально ввічливими.\\n";
+            if(document.getElementById('genPrice').checked) p += "- Вказуйте ціну з приставкою 'від'.\\n";
+            if(document.getElementById('genList').checked) p += "- Виводьте списки послуг з нового рядка.\\n";
+            if(document.getElementById('genSign').checked) {
+                if (assistantName) p += `- В кінці додавайте підпис: "${assistantName}".\\n`;
+                else p += "- В кінці додавайте підпис з іменем.\\n";
+            }
+            if(document.getElementById('genUpsell').checked) p += "- Активно пропонуйте додаткові послуги (upsell/cross-sell).\\n";
+            if(document.getElementById('genUrgency').checked) p += "- Створюйте відчуття терміновості для обмежених пропозицій.\\n";
+            if(document.getElementById('genStrictKnowledge').checked) p += "- Використовуйте ТІЛЬКИ надані дані, не імпровізуйте.\\n";
+            if(document.getElementById('genCallToAction').checked) p += "- Завжди включайте чіткий заклик до дії.\\n";
+
+            const repetitiveHandling = document.getElementById('genRepetitive').value;
+            if (repetitiveHandling) p += `- Реакція на повторні запитання: ${repetitiveHandling}.\\n`;
+            
+            let badWords = document.getElementById('genForbidden').value;
+            if(badWords) p += `\\nЗАБОРОНЕНО використовувати слова: ${badWords}.\\n`;
+            
+            p += "\\nГоловна мета: Допомогти клієнту та записати його на послугу.";
+            document.getElementById('resultPrompt').value = p;
+        } catch(e) {
+            alert('Помилка генерації: ' + e.message);
+            console.error(e);
+        }
+    }
+    </script>
+    """
+    return get_layout(content, user, "gen", scripts)
+
 @app.post("/admin/save-prompt")
 async def save_prompt(
     prompt: str = Form(...), 
-    model: str = Form(...),
-    temp: float = Form(...),
-    tokens: int = Form(...),
+    working_hours: str = Form(None),
+    model: str = Form(None),
+    temp: float = Form(None),
+    tokens: int = Form(None),
     user: User = Depends(get_current_user), 
     db: AsyncSession = Depends(get_db)
 ):
     biz = (await db.execute(select(Business).where(Business.id == user.business_id))).scalar_one_or_none()
     if biz: 
         biz.system_prompt = prompt
-        biz.ai_model = model
-        biz.ai_temperature = temp
-        biz.ai_max_tokens = tokens
+        if model: biz.ai_model = model
+        if temp is not None: biz.ai_temperature = temp
+        if tokens is not None: biz.ai_max_tokens = tokens
+        if working_hours: biz.working_hours = working_hours
         await db.commit()
-    return RedirectResponse("/admin/settings", status_code=303)
+    return {"ok": True}
+
+@app.post("/admin/save-generated-prompt")
+async def save_generated_prompt(
+    prompt: str = Form(""),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if not prompt:
+        return {"ok": False, "msg": "Промпт не може бути порожнім."}
+    biz = await db.get(Business, user.business_id)
+    if biz:
+        biz.system_prompt = prompt
+        await db.commit()
+    return {"ok": True}
 
 @app.post("/admin/save-notification-settings")
 async def save_notification_settings(
@@ -1872,7 +2281,7 @@ async def save_notification_settings(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    if not user: return RedirectResponse("/", status_code=303)
+    if not user: return {"ok": False, "msg": "Не авторизовано"}
     biz = await db.get(Business, user.business_id)
     if biz:
         biz.notification_email = ",".join(filter(None, [e.strip() for e in email]))
@@ -1885,21 +2294,29 @@ async def save_notification_settings(
         biz.telegram_notification_chat_id = ",".join(filter(None, [c.strip() for c in tg_chat_id]))
         biz.telegram_notifications_enabled = tg_enabled
         await db.commit()
-    return RedirectResponse("/admin/settings?msg=saved", status_code=303)
+    return {"ok": True}
 
 @app.post("/admin/add-master")
-async def add_master(name: str = Form(...), login: str = Form(...), password: str = Form(...), services: list[int] = Form([]), user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def add_master(name: str = Form(...), services: list[int] = Form([]), user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if user:
         new_master = Master(business_id=user.business_id, name=name)
         db.add(new_master)
         await db.flush()
         for sid in services:
             db.add(MasterService(master_id=new_master.id, service_id=sid))
-        
-        # Створення користувача для майстра
-        new_user = User(username=login, password=hash_password(password), role="master", business_id=user.business_id, master_id=new_master.id)
-        db.add(new_user)
         await db.commit()
+    return RedirectResponse("/admin/settings", status_code=303)
+
+@app.post("/admin/create-master-account")
+async def create_master_account(id: int = Form(...), login: str = Form(...), password: str = Form(...), user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if not user: return RedirectResponse("/", status_code=303)
+    master = await db.get(Master, id)
+    if master and master.business_id == user.business_id:
+        existing = (await db.execute(select(User).where(User.master_id == id))).scalar_one_or_none()
+        if not existing:
+             new_user = User(username=login, password=hash_password(password), role="master", business_id=user.business_id, master_id=master.id)
+             db.add(new_user)
+             await db.commit()
     return RedirectResponse("/admin/settings", status_code=303)
 
 @app.post("/admin/delete-master")
@@ -1998,8 +2415,8 @@ async def owner_clients(user: User = Depends(get_current_user), db: AsyncSession
     custs = res.scalars().all()
     rows = ""
     for c in custs:
-        c_name = (c.name or '').replace("'", "\\'")
-        c_phone = c.phone_number.replace("'", "\\'")
+        c_name = html.escape(c.name or '')
+        c_phone = html.escape(c.phone_number)
         c_notes = (c.notes or '').replace("'", "\\'").replace("\n", "\\n")
         
         # Логіка відображення соцмереж
@@ -2008,7 +2425,7 @@ async def owner_clients(user: User = Depends(get_current_user), db: AsyncSession
             username_match = re.search(r'@(\w+)', c.name or "")
             if username_match:
                 tg_user = username_match.group(1)
-                contact_display = f'<a href="https://t.me/{tg_user}" target="_blank" class="btn btn-sm btn-outline-info border-0"><i class="fab fa-telegram me-2"></i>Telegram</a>'
+                contact_display = f'<a href="https://t.me/{html.escape(tg_user)}" target="_blank" class="btn btn-sm btn-outline-info border-0"><i class="fab fa-telegram me-2"></i>Telegram</a>'
             else:
                 contact_display = '<span class="badge bg-info bg-opacity-10 text-info"><i class="fab fa-telegram me-1"></i>Telegram ID</span>'
         else:
@@ -2016,8 +2433,8 @@ async def owner_clients(user: User = Depends(get_current_user), db: AsyncSession
             contact_display = f"""<div class="d-flex align-items-center gap-2"><span class="me-2">{c.phone_number}</span><a href="https://wa.me/{clean}" target="_blank" class="text-success" title="WhatsApp"><i class="fab fa-whatsapp"></i></a><a href="viber://chat?number=%2B{clean}" class="text-primary" style="color: #7360f2!important" title="Viber"><i class="fab fa-viber"></i></a><a href="https://t.me/+{clean}" target="_blank" class="text-info" title="Telegram"><i class="fab fa-telegram"></i></a></div>"""
 
         rows += f"""<tr class='align-middle'><td><div class='avatar-circle bg-primary bg-opacity-10 text-primary fw-bold d-inline-flex align-items-center justify-content-center rounded-circle me-3' style='width:40px;height:40px'>{(c.name or '?')[0].upper()}</div>{c.name or 'Без імені'}</td><td>{contact_display}</td><td class='text-end'>
-        <button class='btn btn-sm btn-outline-secondary me-1' onclick="loadHistory({c.id}, '{c_name}')" title="Історія візитів"><i class='fas fa-history'></i></button>
-        <button class='btn btn-sm btn-light text-primary' onclick="editCustomer({c.id}, '{c_name}', '{c_phone}', '{c_notes}')" title="Редагувати та Нотатки"><i class='fas fa-edit'></i></button>
+        <button class='btn btn-sm btn-outline-secondary me-1' onclick="loadHistory({c.id}, '{c_name.replace("'", "\\'")}')" title="Історія візитів"><i class='fas fa-history'></i></button>
+        <button class='btn btn-sm btn-light text-primary' onclick="editCustomer({c.id}, '{c_name.replace("'", "\\'")}', '{c_phone.replace("'", "\\'")}', '{c_notes}')" title="Редагувати та Нотатки"><i class='fas fa-edit'></i></button>
         </td></tr>"""
     
     content = f"""<div class="card p-4"><div class="d-flex justify-content-between mb-4"><h5 class="fw-bold">База Клієнтів</h5><a href="/admin/export-clients" class="btn btn-outline-primary btn-sm"><i class="fas fa-download me-2"></i>Експорт</a></div><div class="table-responsive"><table class="table table-hover"><thead><tr><th>Клієнт</th><th>Зв'язок</th><th class="text-end">Дії</th></tr></thead><tbody>{rows}</tbody></table></div></div>
@@ -2229,7 +2646,7 @@ async def api_chat_lists(user: User = Depends(get_current_user), db: AsyncSessio
         h = ""
         for c in chats:
             h += f"""<button onclick="loadChat({c.id})" data-id="{c.id}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" style="cursor:pointer;">
-                <div><div class="fw-bold">{c.name or 'Гість'}</div><small class="text-muted">{c.phone_number}</small></div>{icon}</button>"""
+                <div><div class="fw-bold">{html.escape(c.name or 'Гість')}</div><small class="text-muted">{html.escape(c.phone_number)}</small></div>{icon}</button>"""
         return h if h else "<div class='p-3 text-muted text-center small'>Пусто</div>"
 
     return {
@@ -2250,7 +2667,8 @@ async def get_chat_messages_html(db, user, customer):
     for log in logs:
         align = "text-end" if log.role == "assistant" else "text-start"
         bg = "bg-primary text-white" if log.role == "assistant" else "bg-light text-dark"
-        msgs_html += f"""<div class="{align} mb-2"><div class="d-inline-block p-2 rounded {bg}" style="max-width: 75%;">{log.content}</div><div class="small text-muted" style="font-size: 0.7rem;">{log.created_at.strftime('%H:%M')}</div></div>"""
+        content_escaped = html.escape(log.content).replace('\n', '<br>')
+        msgs_html += f"""<div class="{align} mb-2"><div class="d-inline-block p-2 rounded {bg}" style="max-width: 75%;">{content_escaped}</div><div class="small text-muted" style="font-size: 0.7rem;">{log.created_at.strftime('%H:%M')}</div></div>"""
     return msgs_html
 
 @app.get("/admin/api/chat-messages/{chat_id}")
@@ -2271,7 +2689,7 @@ async def api_chat_content(chat_id: int, user: User = Depends(get_current_user),
     return HTMLResponse(f"""
     <div class="d-flex flex-column h-100">
         <div class="border-bottom p-3 d-flex justify-content-between align-items-center bg-white">
-            <h6 class="m-0">{customer.name} <small class="text-muted">({customer.phone_number})</small></h6>
+            <h6 class="m-0">{html.escape(customer.name or '')} <small class="text-muted">({html.escape(customer.phone_number)})</small></h6>
             <div class="form-check form-switch ms-3">
                 <input class="form-check-input" type="checkbox" id="aiSwitch_{customer.id}" {"checked" if customer.is_ai_enabled else ""} onchange="toggleAI({customer.id})">
                 <label class="form-check-label small text-muted" for="aiSwitch_{customer.id}">AI Бот</label>
@@ -2446,6 +2864,39 @@ async def help_page(user: User = Depends(get_current_user)):
                             <p>Введіть API токен та ID локації Beauty Pro в налаштуваннях інтеграції. Система автоматично дублюватиме нові записи в Beauty Pro.</p>
                         </div></div>
                     </div>
+
+                    <div class="accordion-item">
+                        <h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#c13">13. Як отримати API (Керівництво)</button></h2>
+                        <div id="c13" class="accordion-collapse collapse" data-bs-parent="#helpAccordion"><div class="accordion-body">
+                            <h6 class="fw-bold">Telegram Bot API:</h6>
+                            <ol>
+                                <li>Знайдіть бота <b>@BotFather</b> у Telegram.</li>
+                                <li>Напишіть команду <code>/newbot</code>.</li>
+                                <li>Введіть назву та username для бота.</li>
+                                <li>Скопіюйте отриманий <b>API Token</b> і вставте його в розділ "Бот-інтеграція".</li>
+                            </ol>
+                            <hr>
+                            <h6 class="fw-bold">SMS (TurboSMS):</h6>
+                            <ol>
+                                <li>Зареєструйтеся на сайті TurboSMS.</li>
+                                <li>У налаштуваннях профілю увімкніть "API" та скопіюйте токен.</li>
+                                <li>Вкажіть цей токен та Sender ID (ім'я відправника) у налаштуваннях.</li>
+                            </ol>
+                            <hr>
+                            <h6 class="fw-bold">CRM (Altegio / Beauty Pro):</h6>
+                            <ul>
+                                <li><b>Altegio (Yclients):</b> Перейдіть у "Налаштування" -> "Інтеграції" -> "API". Скопіюйте Bearer токен користувача.</li>
+                                <li><b>Beauty Pro:</b> Зверніться до підтримки Beauty Pro для отримання API доступу або знайдіть його в кабінеті розробника.</li>
+                            </ul>
+                            <hr>
+                            <h6 class="fw-bold">Месенджери (Tokens):</h6>
+                            <ul>
+                                <li><b>Instagram:</b> Meta for Developers -> Instagram Graph API -> Basic Display -> Створити додаток -> Отримати Token.</li>
+                                <li><b>Viber:</b> Viber Admin Panel -> Create Bot Account -> Отримати Authentication Token.</li>
+                                <li><b>WhatsApp:</b> Meta for Developers -> WhatsApp Business API -> System User -> Згенерувати Token.</li>
+                            </ul>
+                        </div></div>
+                    </div>
                     
                     <div class="accordion-item">
                         <h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#c12">12. Як змінити пароль?</button></h2>
@@ -2526,6 +2977,9 @@ async def startup():
         await conn.execute(text("ALTER TABLE businesses ADD COLUMN IF NOT EXISTS wins_branch_id TEXT"))
         await conn.execute(text("ALTER TABLE businesses ADD COLUMN IF NOT EXISTS doctor_eleks_token TEXT"))
         await conn.execute(text("ALTER TABLE businesses ADD COLUMN IF NOT EXISTS doctor_eleks_clinic_id TEXT"))
+        await conn.execute(text("ALTER TABLE businesses ADD COLUMN IF NOT EXISTS altegio_token TEXT"))
+        await conn.execute(text("ALTER TABLE businesses ADD COLUMN IF NOT EXISTS altegio_company_id TEXT"))
+        await conn.execute(text("ALTER TABLE businesses ADD COLUMN IF NOT EXISTS working_hours TEXT DEFAULT 'Пн-Нд: 09:00 - 20:00'"))
         await conn.execute(text("ALTER TABLE businesses ADD COLUMN IF NOT EXISTS groq_api_key TEXT"))
         await conn.execute(text("ALTER TABLE businesses ADD COLUMN IF NOT EXISTS viber_token TEXT"))
         await conn.execute(text("ALTER TABLE businesses ADD COLUMN IF NOT EXISTS whatsapp_token TEXT"))
