@@ -33,7 +33,6 @@ UA_TZ = pytz.timezone('Europe/Kyiv')
 engine = create_async_engine(DATABASE_URL, echo=False)
 AsyncSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
 client = AsyncGroq(api_key=GROQ_API_KEY)
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -57,7 +56,7 @@ class Business(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    type: Mapped[str] = mapped_column(Text, default="barbershop") 
+    type: Mapped[str] = mapped_column(Text, default="barbershop")
     system_prompt: Mapped[Optional[str]] = mapped_column(Text, default="Ви асистент Барбершопу.")
     has_ai_bot: Mapped[bool] = mapped_column(Boolean, default=False)
     telegram_token: Mapped[Optional[str]] = mapped_column(Text)
@@ -339,9 +338,9 @@ async def owner_dash(user: User = Depends(get_current_user), db: AsyncSession = 
 
     ai_count = await db.scalar(select(func.count(Appointment.id)).where(and_(*filters, Appointment.source == 'ai'))) or 0
     manual_count = await db.scalar(select(func.count(Appointment.id)).where(and_(*filters, Appointment.source == 'manual'))) or 0
-
+    
     top_services = (await db.execute(select(Appointment.service_type, func.count(Appointment.id)).where(and_(*filters)).group_by(Appointment.service_type).order_by(desc(func.count(Appointment.id))).limit(5))).all()
-
+    
     top_clients = (await db.execute(select(Customer.name, func.sum(Appointment.cost)).join(Appointment).where(and_(Customer.business_id == user.business_id, Appointment.status == 'completed')).group_by(Customer.id).order_by(desc(func.sum(Appointment.cost))).limit(5))).all()
 
     if user.role == "master":
@@ -387,7 +386,6 @@ async def owner_dash(user: User = Depends(get_current_user), db: AsyncSession = 
     </ul>
 
     <div class="tab-content">
-        <!-- СПИСОК -->
         <div class="tab-pane fade show active" id="tab-list">
             <div class="row g-4 mb-4">
                 <div class="col-md-8"><div class="card p-4 h-100">
@@ -425,14 +423,12 @@ async def owner_dash(user: User = Depends(get_current_user), db: AsyncSession = 
             <tbody>{rows if rows else '<tr><td colspan=6 class=text-center py-4 text-muted>Немає записів</td></tr>'}</tbody></table></div></div>
         </div>
 
-        <!-- КАЛЕНДАР -->
         <div class="tab-pane fade" id="tab-calendar">
             <div class="card p-4">
                 <div id="calendar"></div>
             </div>
         </div>
 
-        <!-- АНАЛІТИКА -->
         <div class="tab-pane fade" id="tab-analytics">
             <div class="row g-4">
                 <div class="col-md-4"><div class="card p-4 h-100"><h6 class="fw-bold text-center mb-3">Джерела записів (ШІ vs Адмін)</h6><canvas id="chartSource"></canvas></div></div>
@@ -572,7 +568,6 @@ async def owner_dash(user: User = Depends(get_current_user), db: AsyncSession = 
         else {{ alert('Помилка: ' + data.msg); }}
     }}
 
-    // --- CALENDAR LOGIC ---
     function initCalendar() {{
         if(calendar) return;
         var calendarEl = document.getElementById('calendar');
@@ -589,7 +584,6 @@ async def owner_dash(user: User = Depends(get_current_user), db: AsyncSession = 
                 if(!confirm("Перенести запис на " + info.event.start.toLocaleString() + "?")) {{
                     info.revert(); return;
                 }}
-                // Форматування дати для API
                 let d = info.event.start;
                 let dateStr = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
                 let timeStr = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
@@ -605,9 +599,7 @@ async def owner_dash(user: User = Depends(get_current_user), db: AsyncSession = 
         calendar.render();
     }}
 
-    // --- CHARTS LOGIC ---
     function initCharts() {{
-        // Source Chart
         new Chart(document.getElementById('chartSource'), {{
             type: 'doughnut',
             data: {{
@@ -616,7 +608,6 @@ async def owner_dash(user: User = Depends(get_current_user), db: AsyncSession = 
             }}
         }});
 
-        // Services Chart
         new Chart(document.getElementById('chartServices'), {{
             type: 'bar',
             data: {{
@@ -625,7 +616,6 @@ async def owner_dash(user: User = Depends(get_current_user), db: AsyncSession = 
             }}
         }});
 
-        // LTV Chart
         new Chart(document.getElementById('chartLTV'), {{
             type: 'bar',
             data: {{
@@ -656,15 +646,13 @@ async def add_appointment(
     
     redirect_msg = "added"
     
-    # Якщо майстер додає запис, форсуємо його ID
     if user.role == "master": master_id = str(user.master_id)
 
     try:
         dt = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
         final_service = custom_service if service == 'custom' else service
         
-        # 1. Перевірка зайнятості часу (Overlap Check)
-        duration = 90 # За замовчуванням
+        duration = 90
         if final_service:
             srv = (await db.execute(select(Service).where(and_(Service.name == final_service, Service.business_id == user.business_id)))).scalar_one_or_none()
             if srv and srv.duration: duration = srv.duration
@@ -672,7 +660,6 @@ async def add_appointment(
         new_start = dt
         new_end = dt + timedelta(minutes=duration)
         
-        # Отримуємо всі записи на цей день для перевірки
         day_start = dt.replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day_start + timedelta(days=1)
 
@@ -687,19 +674,16 @@ async def add_appointment(
         existing_apps_on_day = (await db.execute(stmt_overlap)).scalars().all()
         
         for app in existing_apps_on_day:
-            # Визначаємо тривалість існуючого запису
-            app_duration = 90 # За замовчуванням
+            app_duration = 90
             s_existing = (await db.execute(select(Service).where(and_(Service.name == app.service_type, Service.business_id == user.business_id)))).scalar_one_or_none()
             if s_existing and s_existing.duration: app_duration = s_existing.duration
             
             app_start = app.appointment_time
             app_end = app_start + timedelta(minutes=app_duration)
             
-            # Перевірка перетину: (StartA < EndB) and (EndA > StartB)
             if new_start < app_end and new_end > app_start:
                 return RedirectResponse("/admin?msg=time_taken", status_code=303)
 
-        # 2. Робота з клієнтом (Тільки якщо час вільний)
         stmt = select(Customer).where(and_(Customer.phone_number == phone, Customer.business_id == user.business_id))
         cust = (await db.execute(stmt)).scalar_one_or_none()
         
@@ -726,7 +710,6 @@ async def add_appointment(
 
         await send_new_appointment_notifications(user.business, new_app, db)
 
-        # Push to external system
         biz = user.business
         if biz.integration_system == "beauty_pro" and biz.beauty_pro_token and biz.beauty_pro_location_id:
             result = await push_to_beauty_pro({
@@ -735,7 +718,6 @@ async def add_appointment(
             }, biz.beauty_pro_token, biz.beauty_pro_location_id, biz.beauty_pro_api_url)
             if result and result.get("status") == "success":
                 redirect_msg = "added_and_synced"
-        # TODO: Add other integrations like WINS, Doctor Eleks
 
     except ValueError: pass
     return RedirectResponse(f"/admin?msg={redirect_msg}", status_code=303)
@@ -751,7 +733,6 @@ async def update_appt(id: int = Form(...), date: str = Form(...), time: str = Fo
             appt.appointment_time = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
             appt.status = status
             appt.cost = cost
-            # Майстер не може передати запис іншому, власник може
             if user.role == "owner":
                 appt.master_id = int(master_id) if master_id and master_id.isdigit() else None
             await db.commit()
@@ -799,7 +780,6 @@ async def send_sms_endpoint(phone: str = Form(...), message: str = Form(...), us
     if not token:
         return {"ok": False, "msg": "Помилка: Не вказано SMS токен в налаштуваннях!"}
 
-    # Інтеграція з TurboSMS
     url = "https://api.turbosms.ua/message/send.json"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     payload = {
@@ -839,8 +819,7 @@ async def get_calendar_events(user: User = Depends(get_current_user), db: AsyncS
     
     events = []
     for a in appts:
-        # Приблизна тривалість 90 хв, якщо не вказано інше (можна покращити, беручи з сервісу)
-        end_time = a.appointment_time + timedelta(minutes=90) 
+        end_time = a.appointment_time + timedelta(minutes=90)
         color = "#10b981" if a.status == 'completed' else "#4f46e5"
         title = f"{a.customer.name or 'Клієнт'} ({a.service_type})"
         
@@ -874,14 +853,12 @@ async def push_to_beauty_pro(data: dict, token: str, location_id: str, api_url: 
             return {"status": "error", "msg": "Помилка з'єднання з Beauty Pro"}
 
 async def update_customer_support_status(db: AsyncSession, business_id: int, user_identifier: str, status: str):
-    """Оновлює статус підтримки клієнта."""
     stmt = select(Customer).where(Customer.business_id == business_id)
     
     if user_identifier.startswith("tg_"):
         tg_id = user_identifier.replace("tg_", "")
         stmt = stmt.where(Customer.telegram_id == tg_id)
     else:
-        # Спроба знайти за телефоном або ID (для web версії складніше, прив'язуємось до логіки створення)
         return # Для веб-версії поки пропускаємо, якщо немає чіткого лінку
         
     customer = (await db.execute(stmt)).scalar_one_or_none()
@@ -890,7 +867,6 @@ async def update_customer_support_status(db: AsyncSession, business_id: int, use
         await db.commit()
 
 async def send_admin_alert_notification(biz: Business, user_identifier: str, user_question: str, user_name: str = None):
-    """Надсилає сповіщення-алерт адміністратору."""
     if not biz.email_notifications_enabled and not biz.telegram_notifications_enabled:
         return
 
@@ -906,7 +882,6 @@ async def send_admin_alert_notification(biz: Business, user_identifier: str, use
     <p>Будь ласка, зв'яжіться з клієнтом якомога швидше.</p>
     """
 
-    # Email Notification
     if biz.email_notifications_enabled and biz.notification_email and biz.smtp_server and biz.smtp_username:
         recipients = [e.strip() for e in biz.notification_email.split(',') if e.strip()]
         if not recipients: return
@@ -925,7 +900,6 @@ async def send_admin_alert_notification(biz: Business, user_identifier: str, use
         except Exception as e:
             logger.error(f"Failed to send admin alert email for business {biz.id}: {e}")
 
-    # Telegram Notification
     if biz.telegram_notifications_enabled and biz.telegram_notification_chat_id and biz.telegram_token:
         chat_ids = [cid.strip() for cid in biz.telegram_notification_chat_id.split(',') if cid.strip()]
         reply_markup = {
@@ -941,7 +915,6 @@ async def send_admin_alert_notification(biz: Business, user_identifier: str, use
                 logger.info(f"Admin alert telegram sent to {chat_id} for business {biz.id}")
 
 async def send_new_appointment_notifications(biz: Business, appt: Appointment, db: AsyncSession):
-    """Надсилає сповіщення про новий запис на основі налаштувань бізнесу."""
     if not biz.email_notifications_enabled and not biz.telegram_notifications_enabled:
         return
 
@@ -961,7 +934,6 @@ async def send_new_appointment_notifications(biz: Business, appt: Appointment, d
     """
     text_body = f"Новий запис!\nКлієнт: {customer.name or 'Не вказано'}\nТелефон: {customer.phone_number}\nЧас: {appt.appointment_time.strftime('%d.%m.%Y %H:%M')}\nПослуга: {appt.service_type}\nВартість: {appt.cost} грн\nМайстер: {master.name if master else 'Не вказано'}"
 
-    # Email Notification
     if biz.email_notifications_enabled and biz.notification_email and biz.smtp_server and biz.smtp_username:
         recipients = [e.strip() for e in biz.notification_email.split(',') if e.strip()]
         if not recipients: return
@@ -979,7 +951,6 @@ async def send_new_appointment_notifications(biz: Business, appt: Appointment, d
         except Exception as e:
             logger.error(f"Failed to send email notification for business {biz.id}: {e}")
 
-    # Telegram Notification
     if biz.telegram_notifications_enabled and biz.telegram_notification_chat_id and biz.telegram_token:
         chat_ids = [cid.strip() for cid in biz.telegram_notification_chat_id.split(',') if cid.strip()]
         async with httpx.AsyncClient() as tg_client:
@@ -987,10 +958,8 @@ async def send_new_appointment_notifications(biz: Business, appt: Appointment, d
                 await tg_client.post(f"https://api.telegram.org/bot{biz.telegram_token}/sendMessage", json={"chat_id": chat_id, "text": text_body})
                 logger.info(f"Telegram notification sent to {chat_id} for business {biz.id}")
 
-    # Master Personal Notification
     if master and master.telegram_chat_id:
         try:
-            # Визначаємо, через якого бота слати (Особистий або Загальний)
             token = master.personal_bot_token if master.personal_bot_token else biz.telegram_token
             
             if token:
@@ -1005,7 +974,6 @@ async def bot_integration_page(request: Request, user: User = Depends(get_curren
     if not user: return RedirectResponse("/", status_code=303)
     biz = await db.get(Business, user.business_id)
     
-    # --- ІНТЕРФЕЙС ДЛЯ МАЙСТРА (Тільки Telegram ID) ---
     if user.role == "master":
         master = await db.get(Master, user.master_id)
         content = f"""
@@ -1094,7 +1062,6 @@ async def bot_integration_page(request: Request, user: User = Depends(get_curren
                         </select>
                     </div>
 
-                    <!-- Beauty Pro Form -->
                     <div id="form-beauty_pro" class="integration-form" style="display: none;">
                         <h6 class="mt-4 mb-3 text-muted border-bottom pb-2">Налаштування Beauty Pro</h6>
                         <div class="mb-3"><label class="form-label small text-muted">Beauty Pro API Token</label><input name="bp_token" class="form-control bg-light border-0" value="{biz.beauty_pro_token or ''}"></div>
@@ -1102,21 +1069,18 @@ async def bot_integration_page(request: Request, user: User = Depends(get_curren
                         <div class="mb-3"><label class="form-label small text-muted">API URL (Endpoint)</label><input name="bp_url" class="form-control bg-light border-0" value="{biz.beauty_pro_api_url or 'https://api.beautypro.com/v1/appointments'}"></div>
                     </div>
 
-                    <!-- WINS Form -->
                     <div id="form-wins" class="integration-form" style="display: none;">
                         <h6 class="mt-4 mb-3 text-muted border-bottom pb-2">Налаштування WINS</h6>
                         <div class="mb-3"><label class="form-label small text-muted">WINS API Token</label><input name="wins_token" class="form-control bg-light border-0" value="{biz.wins_token or ''}"></div>
                         <div class="mb-3"><label class="form-label small text-muted">ID Філіалу (Branch ID)</label><input name="wins_branch_id" class="form-control bg-light border-0" value="{biz.wins_branch_id or ''}"></div>
                     </div>
 
-                    <!-- Doctor Eleks Form -->
                     <div id="form-doctor_eleks" class="integration-form" style="display: none;">
                         <h6 class="mt-4 mb-3 text-muted border-bottom pb-2">Налаштування Doctor Eleks</h6>
                         <div class="mb-3"><label class="form-label small text-muted">Doctor Eleks API Token</label><input name="de_token" class="form-control bg-light border-0" value="{biz.doctor_eleks_token or ''}"></div>
                         <div class="mb-3"><label class="form-label small text-muted">ID Клініки (Clinic ID)</label><input name="de_clinic_id" class="form-control bg-light border-0" value="{biz.doctor_eleks_clinic_id or ''}"></div>
                     </div>
 
-                    <!-- Altegio Form -->
                     <div id="form-altegio" class="integration-form" style="display: none;">
                         <h6 class="mt-4 mb-3 text-muted border-bottom pb-2">Налаштування Altegio</h6>
                         <div class="mb-3"><label class="form-label small text-muted">Altegio User Token</label><input name="altegio_token" class="form-control bg-light border-0" value="{biz.altegio_token or ''}"></div>
@@ -1234,26 +1198,23 @@ async def process_ai_request(business_id: int, question: str, db: AsyncSession, 
     biz = await db.get(Business, business_id)
     if not biz: return "Помилка: Бізнес не знайдено."
     
-    # Знаходимо клієнта для перевірки статусу AI
     stmt_cust = select(Customer).where(Customer.business_id == business_id)
     if user_id.startswith("tg_"):
         stmt_cust = stmt_cust.where(Customer.telegram_id == user_id.replace("tg_", ""))
     customer = (await db.execute(stmt_cust)).scalar_one_or_none()
 
-    # Якщо AI вимкнено для клієнта, просто логуємо повідомлення і виходимо
     if customer and not customer.is_ai_enabled:
         db.add(ChatLog(business_id=business_id, user_identifier=user_id, role="user", content=question))
         await db.commit()
         return None
 
-    # Перевірка на ключові слова для виклику адміністратора
     admin_keywords = ["адмін", "адміністратор", "людина", "оператор", "жива людина", "позвіть адміна"]
     if any(keyword in question.lower() for keyword in admin_keywords):
         await send_admin_alert_notification(biz, user_id, question, user_name)
         
         if customer:
             customer.support_status = "waiting"
-            customer.is_ai_enabled = False # Вимикаємо AI автоматично
+            customer.is_ai_enabled = False
         
         msg = "Зараз покличу адміністратора. Він скоро з вами зв'яжеться."
         db.add(ChatLog(business_id=business_id, user_identifier=user_id, role="user", content=question))
@@ -1266,7 +1227,6 @@ async def process_ai_request(business_id: int, question: str, db: AsyncSession, 
         and_(Appointment.business_id == business_id, Appointment.appointment_time >= start_time)
     ).order_by(Appointment.appointment_time).limit(15)
     
-    # Якщо запит від майстра, показуємо тільки його записи
     if user_id.startswith("web_"):
         u_id = int(user_id.split("_")[1])
         u = await db.get(User, u_id)
@@ -1296,14 +1256,12 @@ async def process_ai_request(business_id: int, question: str, db: AsyncSession, 
     temp = biz.ai_temperature if biz.ai_temperature is not None else 0.5
     tokens = biz.ai_max_tokens or 1024
     
-    # 1. Завантажуємо історію чату (останні 30 повідомлень)
     history_stmt = select(ChatLog).where(
         and_(ChatLog.business_id == business_id, ChatLog.user_identifier == user_id)
     ).order_by(ChatLog.created_at.desc()).limit(30)
     history_res = await db.execute(history_stmt)
-    history_items = history_res.scalars().all()[::-1] # Розвертаємо у хронологічному порядку
+    history_items = history_res.scalars().all()[::-1]
 
-    # 2. Перевірка привітання (чи спілкувалися сьогодні?)
     today = datetime.now(UA_TZ).strftime('%Y-%m-%d')
     has_talked_today = any(h.created_at.strftime('%Y-%m-%d') == today for h in history_items)
     
@@ -1335,7 +1293,6 @@ async def process_ai_request(business_id: int, question: str, db: AsyncSession, 
     Якщо це просто запитання, відповідай звичайним текстом.
     """
 
-    # Формуємо список повідомлень для ШІ
     messages = [{"role": "system", "content": f"{system_instruction}\nДані записів (зайнятий час):\n{appointments_context}"}]
     for h in history_items:
         messages.append({"role": h.role, "content": h.content})
@@ -1369,8 +1326,7 @@ async def process_ai_request(business_id: int, question: str, db: AsyncSession, 
                     
                     dt = datetime.strptime(f"{data['date']} {data['time']}", "%Y-%m-%d %H:%M")
                     
-                    # Перевірка перетину часу
-                    duration = 90 # За замовчуванням
+                    duration = 90
                     service_name = data.get('service')
                     if service_name:
                         srv = (await db.execute(select(Service).where(and_(Service.name == service_name, Service.business_id == business_id)))).scalar_one_or_none()
@@ -1391,7 +1347,7 @@ async def process_ai_request(business_id: int, question: str, db: AsyncSession, 
                     existing_apps_on_day = (await db.execute(stmt_overlap)).scalars().all()
 
                     for app in existing_apps_on_day:
-                        app_duration = 90 # За замовчуванням
+                        app_duration = 90
                         s_existing = (await db.execute(select(Service).where(and_(Service.name == app.service_type, Service.business_id == business_id)))).scalar_one_or_none()
                         if s_existing and s_existing.duration: app_duration = s_existing.duration
                         app_start = app.appointment_time
@@ -1414,7 +1370,6 @@ async def process_ai_request(business_id: int, question: str, db: AsyncSession, 
                     await send_new_appointment_notifications(biz, new_app, db)
 
                     sync_msg = ""
-                    # Push to external system
                     if biz.integration_system == "beauty_pro" and biz.beauty_pro_token and biz.beauty_pro_location_id:
                         result = await push_to_beauty_pro({
                             "phone": phone, "name": name, "service": data.get('service'), 
@@ -1422,9 +1377,7 @@ async def process_ai_request(business_id: int, question: str, db: AsyncSession, 
                         }, biz.beauty_pro_token, biz.beauty_pro_location_id, biz.beauty_pro_api_url)
                         if result and result.get("status") == "success":
                             sync_msg = f"\n\n({result.get('msg')})"
-                    # TODO: Add other integrations like WINS, Doctor Eleks
                     
-                    # ALTEGIO STUB (Логіка буде додана пізніше)
                     if biz.integration_system == "altegio" and biz.altegio_token:
                         pass
 
@@ -1432,11 +1385,9 @@ async def process_ai_request(business_id: int, question: str, db: AsyncSession, 
         except Exception as e:
             pass
 
-        # Зберігаємо історію в БД
         db.add(ChatLog(business_id=business_id, user_identifier=user_id, role="user", content=question))
         db.add(ChatLog(business_id=business_id, user_identifier=user_id, role="assistant", content=response_text))
         if not any(keyword in question.lower() for keyword in admin_keywords):
-             # Якщо це звичайне повідомлення, можна оновити статус на 'none' або залишити як є
              pass
         await db.commit()
 
@@ -1458,7 +1409,6 @@ async def telegram_webhook(business_id: int, request: Request, db: AsyncSession 
             return {"ok": False, "error": "Business or token not found"}
         if not biz.telegram_enabled: return {"ok": True}
 
-        # Обробка натискання кнопки "Відповісти"
         if "callback_query" in data:
             cb_data = data["callback_query"]["data"]
             chat_id = data["callback_query"]["message"]["chat"]["id"]
@@ -1474,7 +1424,6 @@ async def telegram_webhook(business_id: int, request: Request, db: AsyncSession 
                             "reply_markup": {"force_reply": True, "input_field_placeholder": "Ваше повідомлення..."},
                         }
                     )
-            # Підтвердження отримання callback
             async with httpx.AsyncClient() as client:
                 await client.post(f"https://api.telegram.org/bot{biz.telegram_token}/answerCallbackQuery", json={"callback_query_id": data["callback_query"]["id"]})
             return {"ok": True}
@@ -1483,7 +1432,6 @@ async def telegram_webhook(business_id: int, request: Request, db: AsyncSession 
             chat_id = data["message"]["chat"]["id"]
             user_text = data["message"]["text"]
             
-            # Спроба знайти або створити клієнта за Telegram ID
             stmt_cust = select(Customer).where(and_(Customer.telegram_id == str(chat_id), Customer.business_id == business_id))
             cust = (await db.execute(stmt_cust)).scalar_one_or_none()
             
@@ -1495,7 +1443,6 @@ async def telegram_webhook(business_id: int, request: Request, db: AsyncSession 
                 cust = Customer(business_id=business_id, telegram_id=str(chat_id), name=full_name, phone_number=f"Telegram {chat_id}")
                 db.add(cust); await db.commit()
 
-            # Обробка відповіді адміністратора (через Force Reply)
             if "reply_to_message" in data["message"] and data["message"]["reply_to_message"]["from"]["is_bot"]:
                 replied_text = data["message"]["reply_to_message"]["text"]
                 if replied_text.startswith("👇 Введіть відповідь для клієнта. ID:"):
@@ -1695,11 +1642,9 @@ async def ai_settings_page(request: Request, user: User = Depends(get_current_us
     masters = (await db.execute(select(Master).options(joinedload(Master.services)).where(Master.business_id == user.business_id))).unique().scalars().all()
     services = (await db.execute(select(Service).where(Service.business_id == user.business_id))).scalars().all()
 
-    # Отримуємо користувачів-майстрів для перевірки наявності акаунтів
     master_users = (await db.execute(select(User).where(and_(User.business_id == user.business_id, User.role == 'master')))).scalars().all()
     master_user_map = {u.master_id: u.username for u in master_users if u.master_id}
 
-    # Адаптація назв
     labels = {
         "barbershop": {"masters": "👥 Майстри", "services": "💰 Послуги (Прайс)", "master_single": "Майстер", "service_single": "Послуга"},
         "dentistry": {"masters": "👨‍⚕️ Лікарі", "services": "🦷 Процедури", "master_single": "Лікар", "service_single": "Процедура"},
@@ -1711,7 +1656,6 @@ async def ai_settings_page(request: Request, user: User = Depends(get_current_us
     email_chk = "checked" if biz.email_notifications_enabled else ""
     tg_chk = "checked" if biz.telegram_notifications_enabled else ""
 
-    # For multiple emails
     emails = [e.strip() for e in biz.notification_email.split(',') if e.strip()] if biz.notification_email else [""]
     email_inputs_html = ""
     for email in emails:
@@ -1720,7 +1664,6 @@ async def ai_settings_page(request: Request, user: User = Depends(get_current_us
             <button class="btn btn-outline-danger" type="button" onclick="this.parentElement.remove()">&times;</button>
         </div>"""
 
-    # For multiple chat IDs
     tg_chat_ids = [cid.strip() for cid in biz.telegram_notification_chat_id.split(',') if cid.strip()] if biz.telegram_notification_chat_id else [""]
     tg_chat_id_inputs_html = ""
     for chat_id in tg_chat_ids:
@@ -1729,7 +1672,6 @@ async def ai_settings_page(request: Request, user: User = Depends(get_current_us
             <button class="btn btn-outline-danger" type="button" onclick="this.parentElement.remove()">&times;</button>
         </div>"""
 
-    # --- ІНТЕРФЕЙС ДЛЯ МАЙСТРА ---
     if user.role == "master":
         master = await db.get(Master, user.master_id)
         
@@ -1960,7 +1902,6 @@ async def prompt_generator_page(user: User = Depends(get_current_user)):
         
         <form id="genForm" onsubmit="saveGeneratedPrompt(event)">
             <div class="row g-3">
-                <!-- Basic -->
                 <div class="col-12"><h6 class="text-primary fw-bold border-bottom pb-2">🎭 Роль та Стиль</h6></div>
                 <div class="col-md-3">
                     <label class="form-label small text-muted">Роль</label>
@@ -1994,7 +1935,6 @@ async def prompt_generator_page(user: User = Depends(get_current_user)):
                     <input id="genName" class="form-control bg-light border-0" placeholder="Напр. Аліна">
                 </div>
 
-                <!-- Behavior -->
                 <div class="col-12 mt-4"><h6 class="text-primary fw-bold border-bottom pb-2">🧠 Поведінка та Реакції</h6></div>
                 <div class="col-md-3">
                     <label class="form-label small text-muted">Емодзі</label>
@@ -2028,7 +1968,6 @@ async def prompt_generator_page(user: User = Depends(get_current_user)):
                     </select>
                 </div>
 
-                <!-- Personality Traits -->
                 <div class="col-12 mt-4"><h6 class="text-primary fw-bold border-bottom pb-2">🌟 Риси Особистості</h6></div>
                 <div class="col-md-3">
                     <label class="form-label small text-muted">Рівень Формальності</label>
@@ -2062,7 +2001,6 @@ async def prompt_generator_page(user: User = Depends(get_current_user)):
                     </select>
                 </div>
 
-                <!-- Interaction Style -->
                 <div class="col-12 mt-4"><h6 class="text-primary fw-bold border-bottom pb-2">💬 Стиль Взаємодії</h6></div>
                 <div class="col-md-3">
                     <label class="form-label small text-muted">Стиль Запитань</label>
@@ -2097,7 +2035,6 @@ async def prompt_generator_page(user: User = Depends(get_current_user)):
                     </select>
                 </div>
 
-                <!-- Options -->
                 <div class="col-12 mt-4"><h6 class="text-primary fw-bold border-bottom pb-2">⚙️ Деталі та Обмеження</h6></div>
                 <div class="col-md-3"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="genConfirm" checked><label class="form-check-label small">Завжди підтверджувати запис</label></div></div>
                 <div class="col-md-3"><div class="form-check form-switch"><input type="checkbox" class="form-check-input" id="genSales" checked><label class="form-check-label small">Пропонувати вільні вікна (Sales)</label></div></div>
@@ -2303,7 +2240,7 @@ async def create_master_account(id: int = Form(...), login: str = Form(...), pas
 async def delete_master(id: int = Form(...), user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if user:
         await db.execute(delete(MasterService).where(MasterService.master_id == id))
-        await db.execute(delete(User).where(User.master_id == id)) # Видаляємо акаунт входу
+        await db.execute(delete(User).where(User.master_id == id))
         await db.execute(delete(Master).where(and_(Master.id == id, Master.business_id == user.business_id)))
         await db.commit()
     return RedirectResponse("/admin/settings", status_code=303)
@@ -2332,7 +2269,6 @@ async def update_master_profile(bot_token: str = Form(None), new_password: str =
             user.password = hash_password(new_password)
         await db.commit()
         
-        # Встановлення Webhook для особистого бота
         if bot_token:
             base_url = str(request.base_url).rstrip('/')
             if base_url.startswith("http://"): base_url = base_url.replace("http://", "https://")
@@ -2383,12 +2319,9 @@ async def export_clients(user: User = Depends(get_current_user), db: AsyncSessio
 async def owner_clients(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if not user or user.role not in ["owner", "master"]: return RedirectResponse("/", status_code=303)
     
-    # Фільтрація клієнтів
     if user.role == "master":
-        # Показуємо тільки тих клієнтів, які мають записи до цього майстра
         stmt = select(Customer).join(Appointment).where(and_(Customer.business_id == user.business_id, Appointment.master_id == user.master_id)).distinct()
     else:
-        # Власник бачить всіх
         stmt = select(Customer).where(Customer.business_id == user.business_id)
         
     res = await db.execute(stmt)
@@ -2399,7 +2332,6 @@ async def owner_clients(user: User = Depends(get_current_user), db: AsyncSession
         c_phone = html.escape(c.phone_number)
         c_notes = (c.notes or '').replace("'", "\\'").replace("\n", "\\n")
         
-        # Логіка відображення соцмереж
         contact_display = c.phone_number
         if c.phone_number.startswith("Telegram"):
             username_match = re.search(r'@(\w+)', c.name or "")
@@ -2485,7 +2417,6 @@ async def update_customer(id: int = Form(...), name: str = Form(...), phone: str
 @app.get("/admin/api/client-history/{id}")
 async def get_client_history(id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if not user: return ""
-    # Перевірка доступу
     cust = await db.get(Customer, id)
     if not cust or cust.business_id != user.business_id: return "<tr><td colspan='5'>Помилка доступу</td></tr>"
     
@@ -2565,7 +2496,6 @@ async def chats_page(request: Request, user: User = Depends(get_current_user), d
         let html = await res.text();
         let box = document.getElementById('chatBox');
         if(box) {{
-            // Перевіряємо, чи ми внизу, щоб знати, чи скролити
             let isAtBottom = box.scrollHeight - box.scrollTop === box.clientHeight;
             box.innerHTML = html;
             if(isAtBottom) scrollToBottom();
@@ -2605,10 +2535,9 @@ async def chats_page(request: Request, user: User = Depends(get_current_user), d
         if(d) d.scrollTop = d.scrollHeight;
     }}
 
-    // Запуск
     loadLists();
-    setInterval(loadLists, 5000); // Оновлення списку раз на 5 сек
-    setInterval(refreshCurrentChat, 3000); // Оновлення відкритого чату раз на 3 сек
+    setInterval(loadLists, 5000);
+    setInterval(refreshCurrentChat, 3000);
     </script>
     """
     return get_layout(content, user, "chats")
@@ -2727,7 +2656,6 @@ async def telegram_webhook_master(master_id: int, request: Request, db: AsyncSes
             chat_id = data["message"]["chat"]["id"]
             text_msg = data["message"]["text"].lower()
             
-            # Автоматичне збереження Chat ID для сповіщень, якщо майстер пише боту
             if str(master.telegram_chat_id) != str(chat_id):
                 master.telegram_chat_id = str(chat_id)
                 await db.commit()
@@ -2943,13 +2871,12 @@ async def help_page(user: User = Depends(get_current_user)):
 async def reminder_loop():
     while True:
         try:
-            await asyncio.sleep(3600) # Перевірка кожну годину
+            await asyncio.sleep(3600)
             async with AsyncSessionLocal() as db:
                 now = datetime.now(UA_TZ).replace(tzinfo=None)
                 target_time_start = now + timedelta(hours=2)
                 target_time_end = now + timedelta(hours=3)
                 
-                # Знаходимо записи, які будуть через 2-3 години і нагадування ще не було
                 stmt = select(Appointment).options(joinedload(Appointment.customer), joinedload(Appointment.master)).where(and_(
                     Appointment.appointment_time >= target_time_start,
                     Appointment.appointment_time < target_time_end,
@@ -2962,12 +2889,10 @@ async def reminder_loop():
                     biz = await db.get(Business, a.business_id)
                     msg = f"Нагадуємо про візит сьогодні о {a.appointment_time.strftime('%H:%M')}. Чекаємо на вас!"
                     
-                    # Пріоритет: Telegram -> SMS
                     if a.customer.telegram_id and biz.telegram_token:
                         async with httpx.AsyncClient() as client:
                             await client.post(f"https://api.telegram.org/bot{biz.telegram_token}/sendMessage", json={"chat_id": a.customer.telegram_id, "text": msg})
                     elif biz.sms_enabled and biz.sms_token:
-                        # Тут можна викликати логіку SMS, якщо є телефон
                         pass 
                     
                     a.reminder_sent = True
@@ -3039,6 +2964,4 @@ async def startup():
             await db.commit()
     
     asyncio.create_task(reminder_loop())
-
     
-
