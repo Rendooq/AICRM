@@ -13,8 +13,8 @@ import pandas as pd
 from datetime import datetime, timedelta
 from typing import Optional, List
 
-from fastapi import FastAPI, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi import FastAPI, Depends, Form, Request, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, joinedload
@@ -41,6 +41,18 @@ app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, https_only=False, s
 
 if os.path.exists("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    if os.path.exists("static/favicon.ico"):
+        return FileResponse("static/favicon.ico")
+    if os.path.exists("static/favicon.png"):
+        return FileResponse("static/favicon.png")
+    return Response(status_code=204)
+
+@app.get("/.well-known/appspecific/com.chrome.devtools.json", include_in_schema=False)
+async def chrome_devtools_probe():
+    return Response(content="{}", media_type="application/json")
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
@@ -213,7 +225,9 @@ def get_layout(content: str, user: User, active: str, scripts: str = ""):
         <a href="/admin/help" class="nav-link {'active' if active=='help' else ''}"><i class="fas fa-question-circle me-2"></i>Допомога</a>"""
     return f"""
     <!DOCTYPE html><html lang="uk" data-bs-theme="light" lang="uk"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Safe Orbit CRM</title>
+    <link rel="icon" href="/static/favicon.png" type="image/png">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -238,18 +252,50 @@ def get_layout(content: str, user: User, active: str, scripts: str = ""):
         .bg-light {{ background-color: var(--card-bg) !important; color: var(--text) !important; }}
         .form-control, .form-select {{ background-color: var(--card-bg); color: var(--text); border: 1px solid rgba(128, 128, 128, 0.2); }}
         .form-control:focus, .form-select:focus {{ background-color: var(--card-bg); color: var(--text); }}
+        
+        @media (max-width: 768px) {{
+            .sidebar {{ display: none !important; }}
+            .main-content {{ padding-top: 80px; }}
+        }}
     </style></head>
-    <body><div id="app" class="container-fluid"><div class="row">
+    <body>
+    
+    <nav class="navbar fixed-top d-md-none shadow-sm" style="background-color: var(--sidebar); color: white;">
+      <div class="container-fluid">
+        <div class="d-flex align-items-center gap-3">
+            <button class="btn text-white p-0 border-0" type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasMobile"><i class="fas fa-bars fa-lg"></i></button>
+            <span class="navbar-brand mb-0 h1 text-white fw-bold ms-2">Safe Orbit</span>
+        </div>
+        <a href="/logout" class="text-white opacity-75"><i class="fas fa-sign-out-alt fa-lg"></i></a>
+      </div>
+    </nav>
+
+    <div class="offcanvas offcanvas-start" tabindex="-1" id="offcanvasMobile" style="background-color: var(--sidebar);">
+      <div class="offcanvas-header border-bottom border-secondary">
+        <h5 class="offcanvas-title text-white">Меню</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"></button>
+      </div>
+      <div class="offcanvas-body">
+        <nav class="nav flex-column gap-2 mb-4">{menu}</nav>
+        <button class="btn btn-outline-secondary w-100" onclick="toggleTheme()"><i class="fas fa-adjust me-2"></i>Тема</button>
+      </div>
+    </div>
+
+    <div id="app" class="container-fluid"><div class="row">
         <div class="col-md-2 sidebar p-4 d-none d-md-block">
             <div class="d-flex align-items-center mb-5"><i class="fas fa-bolt text-primary fa-2x me-2"></i><h4 class="m-0 text-white">Safe Orbit CRM</h4></div>
             <nav class="nav flex-column gap-1">{menu}</nav>
             <button class="btn btn-outline-secondary w-100 mt-3 btn-sm" onclick="toggleTheme()"><i class="fas fa-adjust me-2"></i>Тема</button>
             <div class="mt-auto pt-5"><a href="/logout" class="nav-link text-danger"><i class="fas fa-sign-out-alt me-2"></i>Вихід</a></div>
         </div>
-        <div class="col-md-10 p-4">
-            <div class="d-flex justify-content-between align-items-center mb-5">
+        <div class="col-md-10 p-4 main-content">
+            <div class="d-none d-md-flex justify-content-between align-items-center mb-5">
                 <div><h3 class="m-0">Вітаємо, {html.escape(user.username)} 👋</h3><small class="text-muted">Панель керування</small></div>
                 <div class="bg-white px-4 py-2 rounded-pill shadow-sm"><i class="far fa-clock me-2 text-primary"></i>{now}</div>
+            </div>
+            <div class="d-md-none mb-4">
+                <h4 class="m-0">Вітаємо, {html.escape(user.username)}</h4>
+                <small class="text-muted">{now}</small>
             </div>
             {content}
             {toast_html}
@@ -1481,12 +1527,13 @@ async def telegram_webhook(business_id: int, request: Request, db: AsyncSession 
 
 @app.get("/", response_class=HTMLResponse)
 async def login_page():
-    return """<!DOCTYPE html><html><head><meta charset="utf-8"><title>Вхід</title>
+    return """<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Вхід</title>
+    <link rel="icon" href="/static/favicon.png" type="image/png">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <style>body { background: #f3f4f6; font-family: 'Inter', sans-serif; height: 100vh; display: flex; align-items: center; justify-content: center; }</style></head>
     <body>
-    <div class="card p-5 shadow-lg border-0" style="width: 400px; border-radius: 24px;">
+    <div class="card p-4 p-md-5 shadow-lg border-0 m-3" style="width: 100%; max-width: 400px; border-radius: 24px;">
         <div class="text-center mb-4"><h3 class="fw-bold text-dark">Увійти</h3><p class="text-muted">Введіть дані для входу</p></div>
         <form action="/login" method="post">
             <div class="mb-3"><label class="form-label small text-muted">Номер телефону</label><input name="username" type="tel" class="form-control form-control-lg bg-light border-0" required></div>
