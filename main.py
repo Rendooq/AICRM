@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse,
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, joinedload
-from sqlalchemy import select, desc, DateTime, ForeignKey, Text, and_, Boolean, func, text, Float, delete, Integer
+from sqlalchemy import select, desc, DateTime, ForeignKey, Text, and_, or_, Boolean, func, text, Float, delete, Integer
 from groq import AsyncGroq
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
@@ -807,11 +807,6 @@ async def delete_appt(id: int = Form(...), user: User = Depends(get_current_user
         customer_id = appt_to_delete.customer_id
         await db.delete(appt_to_delete)
         await db.commit()
-        
-        remaining_appts_count = await db.scalar(select(func.count(Appointment.id)).where(Appointment.customer_id == customer_id))
-        if remaining_appts_count == 0:
-            await db.execute(delete(Customer).where(Customer.id == customer_id))
-            await db.commit()
 
     return RedirectResponse("/admin?msg=deleted", status_code=303)
 
@@ -1271,7 +1266,7 @@ async def process_ai_request(business_id: int, question: str, db: AsyncSession, 
     start_time = datetime.now(UA_TZ).replace(tzinfo=None)
     stmt = select(Appointment).options(joinedload(Appointment.customer)).where(
         and_(Appointment.business_id == business_id, Appointment.appointment_time >= start_time)
-    ).order_by(Appointment.appointment_time).limit(15)
+    ).order_by(Appointment.appointment_time).limit(50)
     
     if user_id.startswith("web_"):
         u_id = int(user_id.split("_")[1])
@@ -1282,7 +1277,10 @@ async def process_ai_request(business_id: int, question: str, db: AsyncSession, 
     res = await db.execute(stmt)
     apps = res.scalars().all()
     
-    appointments_context = "\n".join([f"- {a.appointment_time.strftime('%d.%m %H:%M')} {a.customer.name} ({a.service_type})" for a in apps])
+    if not apps:
+        appointments_context = "На найближчий час записів немає (весь час вільний у робочі години)."
+    else:
+        appointments_context = "\n".join([f"- {a.appointment_time.strftime('%Y-%m-%d %H:%M')} {a.customer.name} ({a.service_type})" for a in apps])
     
     masters = (await db.execute(select(Master).options(joinedload(Master.services)).where(and_(Master.business_id == business_id, Master.is_active == True)))).unique().scalars().all()
     masters_list = []
@@ -1319,12 +1317,19 @@ async def process_ai_request(business_id: int, question: str, db: AsyncSession, 
     Графік роботи: {biz.working_hours or 'Не вказано'}
     {greeting_instruction}
     Сьогоднішня дата: {datetime.now(UA_TZ).strftime('%Y-%m-%d, %A')}.
+    Поточний час: {datetime.now(UA_TZ).strftime('%H:%M')}.
     Тобі КАТЕГОРИЧНО ЗАБОРОНЕНО називати імена інших клієнтів із бази даних.
     
     Доступні майстри: {masters_str}
     Прайс-лист послуг:
     {services_str}
     
+    Список зайнятого часу (appointments):
+    {appointments_context}
+    ВАЖЛИВО: 
+    1. Якщо часу НЕМАЄ у списку вище — він 100% ВІЛЬНИЙ (у межах графіка роботи). Сміливо пропонуй його клієнту! Не вигадуй зайнятість.
+    2. Якщо клієнт просить записати на "сьогодні" на час, який вже минув — ввічливо попроси обрати інший час або запиши на завтра.
+
     Якщо користувач хоче додати/створити запис (наприклад: "запиши на...", "07.03 Іван..."), поверни ТІЛЬКИ JSON об'єкт:
     {{
         "action": "create",
@@ -1339,7 +1344,7 @@ async def process_ai_request(business_id: int, question: str, db: AsyncSession, 
     Якщо це просто запитання, відповідай звичайним текстом.
     """
 
-    messages = [{"role": "system", "content": f"{system_instruction}\nДані записів (зайнятий час):\n{appointments_context}"}]
+    messages = [{"role": "system", "content": system_instruction}]
     for h in history_items:
         messages.append({"role": h.role, "content": h.content})
     messages.append({"role": "user", "content": question})
@@ -1362,13 +1367,14 @@ async def process_ai_request(business_id: int, question: str, db: AsyncSession, 
                     name = data.get('name', '')
                     
                     stmt = select(Customer).where(and_(Customer.phone_number == phone, Customer.business_id == business_id))
-                    if name and phone != 'Не вказано':
-                         stmt = select(Customer).where(and_(Customer.phone_number == phone, Customer.name == name, Customer.business_id == business_id))
                     
                     cust = (await db.execute(stmt)).scalar_one_or_none()
                     if not cust:
                         cust = Customer(business_id=business_id, phone_number=phone, name=name)
                         db.add(cust); await db.commit(); await db.refresh(cust)
+                    elif name and (not cust.name or cust.name.startswith("Telegram")):
+                        cust.name = name
+                        await db.commit()
                     
                     dt = datetime.strptime(f"{data['date']} {data['time']}", "%Y-%m-%d %H:%M")
                     
@@ -1786,7 +1792,24 @@ async def ai_settings_page(request: Request, user: User = Depends(get_current_us
                         <div class="col-md-3"><label class="form-label small text-muted">Температура</label><input name="temp" type="number" step="0.1" min="0" max="1" class="form-control bg-light border-0" value="{biz.ai_temperature}"></div>
                         <div class="col-md-3"><label class="form-label small text-muted">Макс. токенів</label><input name="tokens" type="number" class="form-control bg-light border-0" value="{biz.ai_max_tokens}"></div>
                     </div>
-                    <div class="mb-3"><label class="form-label small text-muted">Графік роботи (для ШІ)</label><input name="working_hours" class="form-control bg-light border-0" value="{biz.working_hours}" placeholder="Пн-Нд: 10:00-20:00"></div>
+                    <div class="mb-3">
+                        <label class="form-label small text-muted">Графік роботи (для ШІ)</label>
+                        <div class="input-group mb-2 shadow-sm rounded">
+                            <select id="wh_days" class="form-select bg-light border-0" style="max-width: 130px;">
+                                <option value="Пн-Нд:">Пн-Нд</option>
+                                <option value="Пн-Пт:">Пн-Пт</option>
+                                <option value="Пн-Сб:">Пн-Сб</option>
+                                <option value="Сб-Нд:">Сб-Нд</option>
+                                <option value="Щодня:">Щодня</option>
+                            </select>
+                            <input type="time" id="wh_start" class="form-control bg-light border-0" value="09:00">
+                            <span class="input-group-text bg-light border-0 px-2">-</span>
+                            <input type="time" id="wh_end" class="form-control bg-light border-0" value="20:00">
+                            <button type="button" class="btn btn-secondary px-3" onclick="generateWH()" title="Додати розклад"><i class="fas fa-plus"></i></button>
+                            <button type="button" class="btn btn-outline-danger px-3" onclick="document.getElementById('working_hours_input').value=''" title="Очистити"><i class="fas fa-eraser"></i></button>
+                        </div>
+                        <input name="working_hours" id="working_hours_input" class="form-control bg-light border-0" value="{biz.working_hours}" placeholder="Наприклад: Пн-Пт: 09:00-19:00, Сб-Нд: 11:00-17:00">
+                    </div>
                     <label class="form-label fw-bold text-muted">Системна інструкція (Prompt)</label>
                     <textarea name="prompt" class="form-control bg-light border-0 p-3 mb-4" rows="10" style="font-family: monospace;">{biz.system_prompt if biz.system_prompt else ""}</textarea>
                     <div class="text-end"><button class="btn btn-primary px-4"><i class="fas fa-save me-2"></i>Зберегти зміни</button></div>
@@ -1885,6 +1908,18 @@ async def ai_settings_page(request: Request, user: User = Depends(get_current_us
     </div>"""
     scripts = """
     <script>
+    function generateWH() {
+        const days = document.getElementById('wh_days').value;
+        const start = document.getElementById('wh_start').value;
+        const end = document.getElementById('wh_end').value;
+        if(start && end) { 
+            let input = document.getElementById('working_hours_input');
+            let current = input.value.trim();
+            let addition = `${days} ${start}-${end}`;
+            if (current) { input.value = current + ', ' + addition; }
+            else { input.value = addition; }
+        }
+    }
     async function saveForm(event, url) {
         event.preventDefault();
         const form = event.target;
@@ -2369,7 +2404,15 @@ async def owner_clients(user: User = Depends(get_current_user), db: AsyncSession
     if user.role == "master":
         stmt = select(Customer).join(Appointment).where(and_(Customer.business_id == user.business_id, Appointment.master_id == user.master_id)).distinct()
     else:
-        stmt = select(Customer).where(Customer.business_id == user.business_id)
+        stmt = select(Customer).outerjoin(Appointment).where(
+            and_(
+                Customer.business_id == user.business_id,
+                or_(
+                    Appointment.id.isnot(None),
+                    ~Customer.phone_number.like('Telegram %')
+                )
+            )
+        ).group_by(Customer.id)
         
     res = await db.execute(stmt)
     custs = res.scalars().all()
@@ -2389,7 +2432,7 @@ async def owner_clients(user: User = Depends(get_current_user), db: AsyncSession
                 contact_display = '<span class="badge bg-info bg-opacity-10 text-info"><i class="fab fa-telegram me-1"></i>Telegram ID</span>'
         else:
             clean = ''.join(filter(str.isdigit, c.phone_number))
-            contact_display = f"""<div class="d-flex align-items-center gap-2"><span class="me-2">{c.phone_number}</span><a href="https://wa.me/{clean}" target="_blank" class="text-success" title="WhatsApp"><i class="fab fa-whatsapp"></i></a><a href="viber://chat?number=%2B{clean}" class="text-primary" style="color: #7360f2!important" title="Viber"><i class="fab fa-viber"></i></a><a href="https://t.me/+{clean}" target="_blank" class="text-info" title="Telegram"><i class="fab fa-telegram"></i></a></div>"""
+            contact_display = f"""<div class="d-flex align-items-center gap-2"><span class="me-2">{c.phone_number}</span><a href="tel:+{clean}" class="text-secondary" title="Зателефонувати"><i class="fas fa-phone"></i></a><a href="https://wa.me/{clean}" target="_blank" class="text-success" title="WhatsApp"><i class="fab fa-whatsapp"></i></a><a href="viber://chat?number=%2B{clean}" class="text-primary" style="color: #7360f2!important" title="Viber"><i class="fab fa-viber"></i></a><a href="https://t.me/+{clean}" target="_blank" class="text-info" title="Telegram"><i class="fab fa-telegram"></i></a></div>"""
 
         rows += f"""<tr class='align-middle'><td><div class='avatar-circle bg-primary bg-opacity-10 text-primary fw-bold d-inline-flex align-items-center justify-content-center rounded-circle me-3' style='width:40px;height:40px'>{(c.name or '?')[0].upper()}</div>{c.name or 'Без імені'}</td><td>{contact_display}</td><td class='text-end'>
         <button class='btn btn-sm btn-outline-secondary me-1' onclick="loadHistory({c.id}, '{c_name.replace("'", "\\'")}')" title="Історія візитів"><i class='fas fa-history'></i></button>
@@ -2569,6 +2612,14 @@ async def chats_page(request: Request, user: User = Depends(get_current_user), d
         await fetch('/admin/api/toggle-ai', {{method:'POST', body:f}});
     }}
 
+    async function clearChatContext(id) {{
+        if(!confirm("Очистити пам'ять діалогу (контекст ШІ) для цього клієнта?")) return;
+        let f = new FormData(); f.append('chat_id', id);
+        await fetch('/admin/api/clear-chat-history', {{method:'POST', body:f}});
+        refreshCurrentChat();
+        showToast("Контекст пам'яті ШІ успішно очищено!");
+    }}
+
     async function closeChat(id) {{
         let f = new FormData(); f.append('chat_id', id);
         await fetch('/admin/api/close-chat', {{method:'POST', body:f}});
@@ -2650,6 +2701,7 @@ async def api_chat_content(chat_id: int, user: User = Depends(get_current_user),
                 <label class="form-check-label small text-muted" for="aiSwitch_{customer.id}">AI Бот</label>
             </div>
             <button onclick="closeChat({customer.id})" class="btn btn-sm btn-outline-success"><i class="fas fa-check me-1"></i>Завершити</button>
+            <button onclick="clearChatContext({customer.id})" class="btn btn-sm btn-outline-danger ms-1" title="Очистити пам'ять ШІ"><i class="fas fa-eraser"></i></button>
         </div>
         <div id="chatBox" class="flex-grow-1 p-3 overflow-auto" style="background: #f8f9fa;">{msgs_html}</div>
         <div class="p-3 border-top bg-white">
@@ -2689,6 +2741,15 @@ async def api_close_chat(chat_id: int = Form(...), user: User = Depends(get_curr
     customer = await db.get(Customer, chat_id)
     if customer and customer.business_id == user.business_id:
         customer.support_status = 'completed'
+        await db.commit()
+    return {"ok": True}
+
+@app.post("/admin/api/clear-chat-history")
+async def api_clear_chat_history(chat_id: int = Form(...), user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    cust = await db.get(Customer, chat_id)
+    if cust and cust.business_id == user.business_id:
+        uid = f"tg_{cust.telegram_id}" if cust.telegram_id else f"web_{user.id}"
+        await db.execute(delete(ChatLog).where(and_(ChatLog.business_id == user.business_id, ChatLog.user_identifier == uid)))
         await db.commit()
     return {"ok": True}
 
