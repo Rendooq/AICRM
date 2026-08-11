@@ -82,6 +82,7 @@ async def super_admin_page(sort: str = "date_desc", user: User = Depends(get_cur
     pending_rows = ""
     for b in pending_bizs:
         plan_badge = "<span class='badge bg-warning text-dark'>Базовий</span>" if b.plan_type == 'plan1' else "<span class='badge bg-primary'>PRO</span>"
+        country_badge = "<span class='badge bg-info bg-opacity-10 text-info ms-1'>США</span>" if getattr(b, 'billing_country', 'ua') == 'us' else "<span class='badge bg-info bg-opacity-10 text-info ms-1'>Україна</span>"
         if getattr(b, 'subscription_discount', 0) > 0:
             if not b.discount_ends_at or b.discount_ends_at > datetime.now(UA_TZ).replace(tzinfo=None):
                 d_end_str = b.discount_ends_at.strftime('%d.%m.%Y') if getattr(b, 'discount_ends_at', None) else 'назавжди'
@@ -98,7 +99,7 @@ async def super_admin_page(sort: str = "date_desc", user: User = Depends(get_cur
             status_html = plan_badge
             actions_html = f"<form action='/superadmin/approve-payment/{b.id}' method='post' class='d-inline'><button class='btn btn-sm btn-success me-2'><i class='fas fa-check me-1'></i>Схвалити</button></form><button type='button' class='btn btn-sm btn-danger' onclick='rejectPayment({b.id})'><i class='fas fa-times'></i></button>"
             
-        pending_rows += f"<tr class='align-middle'><td><span class='text-muted'>#{b.id}</span></td><td><div class='fw-bold'>{html.escape(b.name)}</div><small class='text-muted'>{html.escape(b.type)}</small>{utm_info}</td><td>{status_html}</td><td><div class='d-flex gap-1'>{receipt_html}{nda_html}{contract_html}</div></td><td class='text-end'>{actions_html}</td></tr>"
+        pending_rows += f"<tr class='align-middle'><td><span class='text-muted'>#{b.id}</span></td><td><div class='fw-bold'>{html.escape(b.name)}</div><small class='text-muted'>{html.escape(b.type)}</small>{country_badge}{utm_info}</td><td>{status_html}</td><td><div class='d-flex gap-1'>{receipt_html}{nda_html}{contract_html}</div></td><td class='text-end'>{actions_html}</td></tr>"
 
     active_rows = ""
     docs_rows = ""
@@ -908,11 +909,22 @@ async def global_payment_settings_page(user: User = Depends(get_current_user), d
         <h4 class="fw-800 text-white mb-4">Глобальні Налаштування Оплати</h4>
         <p class="text-muted small mb-5">Ці налаштування відображаються на сторінці реєстрації для всіх нових бізнесів.</p>
         <form action="/superadmin/save-global-payment-settings" method="post">
+            <h6 class="text-white fw-800 mb-3"><i class="fas fa-flag me-2 text-primary"></i>Україна</h6>
             <div class="mb-3"><label class="form-label">IBAN</label><input name="iban" class="glass-input" value="{html.escape(settings.iban or '')}" placeholder="UAXXXXXXXXXXXXXXXXXXXXXXXXX"></div>
             <div class="mb-3"><label class="form-label">Номер картки</label><input name="card_number" class="glass-input" value="{html.escape(settings.card_number or '')}" placeholder="XXXX XXXX XXXX XXXX"></div>
             <div class="mb-3"><label class="form-label">Отримувач</label><input name="receiver_name" class="glass-input" value="{html.escape(settings.receiver_name or '')}" placeholder="ПІБ або Назва компанії"></div>
             <div class="mb-3"><label class="form-label">Назва банку</label><input name="bank_name" class="glass-input" value="{html.escape(settings.bank_name or '')}" placeholder="Monobank"></div>
             <div class="mb-4"><label class="form-label">URL QR-коду</label><input name="qr_url" class="glass-input" value="{html.escape(settings.qr_url or '')}" placeholder="https://example.com/qr.png"></div>
+
+            <div class="section-divider my-5" style="height:1px;background:rgba(255,255,255,0.08);"></div>
+            <h6 class="text-white fw-800 mb-3"><i class="fas fa-flag-usa me-2 text-primary"></i>США</h6>
+            <div class="mb-3"><label class="form-label">Назва банку США</label><input name="us_bank_name" class="glass-input" value="{html.escape(getattr(settings, 'us_bank_name', None) or '')}" placeholder="Bank name"></div>
+            <div class="mb-3"><label class="form-label">Account number</label><input name="us_account_number" class="glass-input" value="{html.escape(getattr(settings, 'us_account_number', None) or '')}" placeholder="0000000000"></div>
+            <div class="mb-3"><label class="form-label">Routing number</label><input name="us_routing_number" class="glass-input" value="{html.escape(getattr(settings, 'us_routing_number', None) or '')}" placeholder="000000000"></div>
+            <div class="mb-3"><label class="form-label">SWIFT</label><input name="us_swift" class="glass-input" value="{html.escape(getattr(settings, 'us_swift', None) or '')}" placeholder="BOFAUS3N"></div>
+            <div class="mb-3"><label class="form-label">Отримувач США</label><input name="us_receiver_name" class="glass-input" value="{html.escape(getattr(settings, 'us_receiver_name', None) or '')}" placeholder="SafeOrbit LLC"></div>
+            <div class="mb-3"><label class="form-label">URL QR-коду США</label><input name="us_qr_url" class="glass-input" value="{html.escape(getattr(settings, 'us_qr_url', None) or '')}" placeholder="https://example.com/us-qr.png"></div>
+            <div class="mb-4"><label class="form-label">Примітка для оплати США</label><textarea name="us_payment_note" class="glass-input" rows="3" placeholder="Wire / ACH transfer instructions">{html.escape(getattr(settings, 'us_payment_note', None) or '')}</textarea></div>
             
             <div class="form-check form-switch mb-3">
                 <input class="form-check-input" type="checkbox" name="is_plan1_active" id="isPlan1Active" {plan1_check}>
@@ -996,6 +1008,13 @@ async def save_global_payment_settings(
     settings.receiver_name = form_data.get('receiver_name')
     settings.qr_url = form_data.get('qr_url')
     settings.bank_name = form_data.get('bank_name')
+    settings.us_bank_name = form_data.get('us_bank_name')
+    settings.us_account_number = form_data.get('us_account_number')
+    settings.us_routing_number = form_data.get('us_routing_number')
+    settings.us_swift = form_data.get('us_swift')
+    settings.us_receiver_name = form_data.get('us_receiver_name')
+    settings.us_qr_url = form_data.get('us_qr_url')
+    settings.us_payment_note = form_data.get('us_payment_note')
     settings.is_plan1_active = form_data.get('is_plan1_active') == 'on'
     settings.is_plan2_active = form_data.get('is_plan2_active') == 'on'
     try: settings.plan1_discount = int(form_data.get('plan1_discount') or 0)

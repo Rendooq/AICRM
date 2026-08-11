@@ -796,6 +796,7 @@ async def generate_receipt(id: int, user: User = Depends(get_current_user), db: 
     <head>
         <meta charset="utf-8">
         <title>Чек #{appt.id}</title>
+        <script defer src="/static/i18n.js"></script>
         <style>
             body {{ font-family: 'Courier New', Courier, monospace; background: #e5e7eb; display: flex; justify-content: center; padding: 2rem; margin: 0; }}
             .receipt {{ background: white; padding: 2rem; width: 320px; border-radius: 4px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); color: #000; }}

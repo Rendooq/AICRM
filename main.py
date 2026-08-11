@@ -1,6 +1,7 @@
 import os
 import asyncio
 import secrets
+import httpx
 from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Depends, Request, Response
@@ -114,6 +115,79 @@ app.include_router(api_v1.public_chat_router)
 app.include_router(api_v1.router)
 app.include_router(api_schools.router, include_in_schema=False) 
 
+_I18N_TARGETS = {
+    "en": "en",
+    "ru": "ru",
+    "pl": "pl",
+    "zh": "zh-CN",
+}
+_I18N_CACHE: dict[tuple[str, str], str] = {}
+
+
+async def _translate_ui_text(text_value: str, target_lang: str) -> str:
+    cache_key = (target_lang, text_value)
+    if cache_key in _I18N_CACHE:
+        return _I18N_CACHE[cache_key]
+
+    translated = text_value
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get(
+                "https://translate.googleapis.com/translate_a/single",
+                params={
+                    "client": "gtx",
+                    "sl": "auto",
+                    "tl": _I18N_TARGETS[target_lang],
+                    "dt": "t",
+                    "q": text_value,
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+            parts = payload[0] if payload and isinstance(payload[0], list) else []
+            translated = "".join(part[0] for part in parts if part and part[0]) or text_value
+    except Exception as exc:
+        logger.debug("UI translation fallback failed for %s: %s", target_lang, exc)
+
+    _I18N_CACHE[cache_key] = translated
+    return translated
+
+
+@app.post("/api/i18n/translate", include_in_schema=False)
+async def translate_ui_text(request: Request):
+    try:
+        payload = await request.json()
+    except Exception:
+        return {"translations": {}}
+
+    target_lang = str(payload.get("target", "")).lower()
+    if target_lang not in _I18N_TARGETS:
+        return {"translations": {}}
+
+    raw_texts = payload.get("texts", [])
+    if not isinstance(raw_texts, list):
+        return {"translations": {}}
+
+    texts: list[str] = []
+    seen: set[str] = set()
+    for item in raw_texts:
+        text_value = " ".join(str(item).split())
+        if not text_value or text_value in seen or len(text_value) > 1000:
+            continue
+        seen.add(text_value)
+        texts.append(text_value)
+        if len(texts) >= 80:
+            break
+
+    semaphore = asyncio.Semaphore(8)
+
+    async def translate_limited(text_value: str):
+        async with semaphore:
+            return text_value, await _translate_ui_text(text_value, target_lang)
+
+    pairs = await asyncio.gather(*(translate_limited(text_value) for text_value in texts))
+    return {"translations": dict(pairs)}
+
 def custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
@@ -196,6 +270,14 @@ async def startup():
             "ALTER TABLE businesses ADD COLUMN subscription_discount INTEGER DEFAULT 0;",
             "ALTER TABLE businesses ADD COLUMN discount_ends_at TIMESTAMP;",
             "ALTER TABLE businesses ADD COLUMN webhook_secret TEXT;", # New field for webhook signature verification
+            "ALTER TABLE businesses ADD COLUMN billing_country TEXT DEFAULT 'ua';",
+            "ALTER TABLE global_payment_settings ADD COLUMN us_bank_name TEXT;",
+            "ALTER TABLE global_payment_settings ADD COLUMN us_account_number TEXT;",
+            "ALTER TABLE global_payment_settings ADD COLUMN us_routing_number TEXT;",
+            "ALTER TABLE global_payment_settings ADD COLUMN us_swift TEXT;",
+            "ALTER TABLE global_payment_settings ADD COLUMN us_receiver_name TEXT;",
+            "ALTER TABLE global_payment_settings ADD COLUMN us_qr_url TEXT;",
+            "ALTER TABLE global_payment_settings ADD COLUMN us_payment_note TEXT;",
             "ALTER TABLE api_keys ADD COLUMN api_key TEXT;",
             "ALTER TABLE api_keys DROP COLUMN IF EXISTS prefix;",
             "ALTER TABLE api_keys DROP COLUMN IF EXISTS key_hash;"

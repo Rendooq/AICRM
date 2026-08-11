@@ -1261,8 +1261,15 @@ async def clients_page(user: User = Depends(get_current_user), db: AsyncSession 
         
     content = f"""
     <div class="glass-card p-4">
-        <h5 class="fw-800 text-white mb-4"><i class="fas fa-users text-primary me-2"></i>База клієнтів</h5>
-        <h5 class="fw-800 text-white mb-4"><i class="fas fa-users text-primary me-2"></i>База {l.get('clients', 'Клієнтів').lower()}</h5>
+        <div class="d-flex align-items-center gap-3 mb-4">
+            <div class="d-flex align-items-center justify-content-center flex-shrink-0" style="width: 46px; height: 46px; border-radius: 14px; background: linear-gradient(135deg, rgba(187,134,252,0.22), rgba(96,165,250,0.14)); border: 1px solid rgba(187,134,252,0.22); color: #d9c7ff;">
+                <i class="fas fa-users"></i>
+            </div>
+            <div class="min-w-0">
+                <h5 class="fw-800 text-white mb-1">{l.get('clients', 'Клієнти')}</h5>
+                <div class="small text-white-50">Єдина база контактів, знижок, статусів і нотаток</div>
+            </div>
+        </div>
         <div class="table-responsive w-full overflow-x-auto whitespace-nowrap block">
             <table class="glass-table">
                 <thead><tr><th>ID</th><th>Ім'я</th><th>Телефон</th><th>Знижка</th><th>Статус</th><th>Нотатки</th><th class="text-end">Дії</th></tr></thead>

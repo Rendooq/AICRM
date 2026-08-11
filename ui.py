@@ -58,6 +58,7 @@ def get_layout(content: str, user: User, active: str, scripts: str = ""):
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script defer src="/static/i18n.js"></script>
     <style>
         *, *::before, *::after {{ margin: 0; padding: 0; box-sizing: border-box; }}
         html {{ overflow-x: hidden; width: 100%; max-width: 100vw; margin: 0; padding: 0; }}
@@ -1598,7 +1599,7 @@ def get_layout(content: str, user: User, active: str, scripts: str = ""):
             <div class="top-header">
                 <div class="header-title-row">
                     <button class="btn-glass sidebar-open-btn" onclick="toggleSidebar()" style="padding: 10px 14px; border-radius: 12px; height: 44px; width: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;"><i class="fas fa-bars"></i></button>
-                    <h1 class="page-title text-truncate">{ 'Аналітика' if active in ['super', 'dash'] else ('Конфігурація' if active == 'set' else ('Склад' if active == 'fin' else (l['clients'] if active == 'cust' else ('AI Сервіс' if active == 'gen' else ('Інтелектуальний Асистент' if active == 'bot' else ('Журнал подій' if active == 'logs' else ('Комунікації' if active == 'chats' else ('Підтримка' if active == 'help' else 'Панель')))))))) }</h1>
+                    <h1 class="page-title text-truncate">{ 'Аналітика' if active in ['super', 'dash'] else ('Конфігурація' if active == 'set' else ('Склад' if active == 'fin' else (l['clients'] if active in ['cust', 'kli'] else ('AI Сервіс' if active == 'gen' else ('Інтелектуальний Асистент' if active == 'bot' else ('Журнал подій' if active == 'logs' else ('Комунікації' if active == 'chats' else ('Підтримка' if active == 'help' else 'Панель')))))))) }</h1>
                 </div>
                 <div style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
                     <div class="search-box">
@@ -1817,6 +1818,7 @@ def get_api_docs_html() -> str:
     <title>SafeOrbit API Reference</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script defer src="/static/i18n.js"></script>
     <!-- PrismJS for Syntax Highlighting -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
     <style>
@@ -2491,6 +2493,7 @@ def get_chat_widget_html() -> str:
     <title>SafeOrbit Chat Widget</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script defer src="/static/i18n.js"></script>
     <style>
         :root {
             --primary: #9D4EDD;

@@ -66,8 +66,6 @@ class IncomingWebhookRequest(BaseModel):
 api_key_header = APIKeyHeader(name="X-API-Key")
 router = APIRouter(prefix="/api/v1", dependencies=[Depends(api_key_header)])
 
-# --- API Key Endpoints ---
-
 @router.post(
     "/api-keys",
     response_model=ApiKeyFullResponse,
@@ -131,8 +129,6 @@ async def revoke_api_key(
     api_key.is_active = False
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-# --- Webhooks Management Endpoints ---
 
 @router.post(
     "/webhooks",
@@ -250,14 +246,10 @@ async def create_appointment(
                     media_type="application/json"
                 )
             else:
-                # Request is in progress, or failed without a stored response.
-                # For simplicity, we'll treat this as a conflict.
                 raise IdempotencyKeyError("Request with this idempotency key is already being processed or failed.")
         else:
-            # Create new idempotency record
             await create_idempotency_key(db, idempotency_key, business_id, appointment_data.model_dump())
 
-    # Basic validation for customer_id existence
     customer = await db.get(Customer, appointment_data.customer_id)
     if not customer or customer.business_id != business_id:
         raise APIError(code="invalid_customer", message="Customer not found or does not belong to this business")
@@ -272,7 +264,6 @@ async def create_appointment(
         if idempotency_record:
             await update_idempotency_key(db, idempotency_record, {"id": new_appointment.id, "status": new_appointment.status}, status.HTTP_201_CREATED)
 
-    # Trigger webhook in background
     background_tasks.add_task(
         dispatch_webhooks,
         business_id,
@@ -311,7 +302,7 @@ async def update_appointment(
     appointment_id: int,
     appointment_data: AppointmentUpdate,
     background_tasks: BackgroundTasks,
-    business_id: int = Depends(get_tenant_context), # This now works correctly
+    business_id: int = Depends(get_tenant_context),
     db: AsyncSession = Depends(get_db)
 ):
     appointment = await db.get(Appointment, appointment_id)

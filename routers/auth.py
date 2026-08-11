@@ -33,9 +33,39 @@ async def register_page(request: Request, db: AsyncSession = Depends(get_db)):
         await db.refresh(settings)
 
     iban = settings.iban or "UA363220010000026205345692520"
+    card_number = settings.card_number or ""
     bank_name = settings.bank_name or "Monobank"
     receiver = settings.receiver_name or "SafeOrbit"
     qr_url = settings.qr_url or "/static/payment_qr.png"
+    payment_profiles = {
+        "ua": {
+            "country": "Україна",
+            "method": "IBAN реквізити",
+            "bank": bank_name,
+            "receiver": receiver,
+            "qr_url": qr_url,
+            "note": "",
+            "lines": [
+                ["IBAN", iban],
+                ["Номер картки", card_number],
+            ],
+        },
+        "us": {
+            "country": "США",
+            "method": "Wire / ACH реквізити",
+            "bank": getattr(settings, "us_bank_name", None) or "USA bank details",
+            "receiver": getattr(settings, "us_receiver_name", None) or "SafeOrbit LLC",
+            "qr_url": getattr(settings, "us_qr_url", None) or "",
+            "note": getattr(settings, "us_payment_note", None) or "Реквізити США налаштовуються в адмінпанелі SafeOrbit.",
+            "lines": [
+                ["Bank", getattr(settings, "us_bank_name", None) or ""],
+                ["Account number", getattr(settings, "us_account_number", None) or ""],
+                ["Routing number", getattr(settings, "us_routing_number", None) or ""],
+                ["SWIFT", getattr(settings, "us_swift", None) or ""],
+            ],
+        },
+    }
+    payment_profiles_json = json.dumps(payment_profiles, ensure_ascii=False).replace("</", "<\\/")
     
     plan1_discount = getattr(settings, 'plan1_discount', 0) or 0
     plan2_discount = getattr(settings, 'plan2_discount', 0) or 0
@@ -97,6 +127,7 @@ async def register_page(request: Request, db: AsyncSession = Depends(get_db)):
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script defer src="/static/i18n.js"></script>
     <style>
     *, *::before, *::after {{ box-sizing: border-box; }}
     html, body {{ overflow-x: hidden; width: 100%; max-width: 100vw; margin: 0; padding: 0; }}
@@ -315,6 +346,141 @@ async def register_page(request: Request, db: AsyncSession = Depends(get_db)):
         display: inline-block;
         letter-spacing: 0.5px;
     }}
+
+    @media (max-width: 768px) {{
+        body {{
+            display: block;
+            padding: 76px 14px 28px;
+            min-height: 100svh;
+        }}
+        .register-card {{
+            padding: 2rem 1.25rem;
+            border-radius: 30px;
+            max-width: 100%;
+            overflow: hidden;
+            box-shadow: 0 28px 80px rgba(0,0,0,0.55), inset 0 0.5px 1px rgba(255,255,255,0.18);
+        }}
+        .logo-box {{
+            width: 64px;
+            height: 64px;
+            border-radius: 20px;
+            font-size: 28px;
+            margin-bottom: 22px;
+        }}
+        .register-card h2 {{
+            font-size: 30px !important;
+            letter-spacing: 0 !important;
+        }}
+        .register-card .text-center.mb-5 {{
+            margin-bottom: 2rem !important;
+        }}
+        .row {{
+            --bs-gutter-x: 1rem;
+            --bs-gutter-y: 1rem;
+        }}
+        .section-divider {{
+            margin: 32px 0;
+        }}
+        .register-card .row.g-4 > .col-6 {{
+            width: 100%;
+        }}
+        .plan-card {{
+            padding: 18px;
+            border-radius: 20px;
+        }}
+        .plan-price {{
+            font-size: 22px;
+            line-height: 1.2;
+        }}
+        .plan-desc {{
+            font-size: 13px;
+            line-height: 1.45;
+        }}
+        .doc-box,
+        .payment-alert {{
+            padding: 1.25rem;
+            border-radius: 24px;
+        }}
+        .doc-box > .d-flex,
+        .payment-alert > .d-flex {{
+            flex-direction: column;
+            gap: 12px !important;
+        }}
+        .btn-primary-glow,
+        .btn-secondary-glass {{
+            width: 100%;
+            min-height: 46px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }}
+        #paymentAmountText {{
+            font-size: 21px !important;
+            line-height: 1.3;
+            text-align: center;
+            overflow-wrap: anywhere;
+        }}
+        #payIban {{
+            padding: 1.1rem !important;
+        }}
+        #ibanText {{
+            font-size: 13px !important;
+            line-height: 1.55 !important;
+        }}
+        #ibanText .d-flex {{
+            flex-direction: column;
+            gap: 2px !important;
+            text-align: left;
+        }}
+        #ibanText .text-end {{
+            text-align: left !important;
+            overflow-wrap: anywhere;
+        }}
+        #payIban .d-flex.justify-content-center {{
+            flex-direction: column;
+            gap: 10px !important;
+        }}
+        .input-group {{
+            flex-wrap: wrap;
+        }}
+        .input-group > input {{
+            width: 100% !important;
+            border-radius: 18px !important;
+            border-right: 1px solid var(--glass-border) !important;
+            margin-bottom: 10px;
+        }}
+        .input-group > button {{
+            width: 100% !important;
+            border-radius: 18px !important;
+        }}
+        .form-control,
+        .form-select {{
+            min-height: 46px;
+        }}
+        .form-check {{
+            padding-left: 1.75rem !important;
+            padding-right: 0 !important;
+        }}
+    }}
+
+    @media (max-width: 420px) {{
+        body {{
+            padding-left: 10px;
+            padding-right: 10px;
+        }}
+        .register-card {{
+            padding: 1.5rem 1rem;
+            border-radius: 24px;
+        }}
+        .doc-box,
+        .payment-alert {{
+            padding: 1rem;
+        }}
+        #paymentAmountText {{
+            font-size: 19px !important;
+        }}
+    }}
     </style></head>
     <body>
     <div class="register-card">
@@ -329,6 +495,14 @@ async def register_page(request: Request, db: AsyncSession = Depends(get_db)):
                 <div class="col-12">
                     <label class="form-label">Назва бізнесу</label>
                     <input name="name" class="form-control" placeholder="Введіть назву..." required>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">Країна оплати</label>
+                    <select name="payment_country" id="paymentCountry" class="form-select" onchange="updatePaymentCountry()" required>
+                        <option value="ua" selected>Україна</option>
+                        <option value="us">США</option>
+                    </select>
                 </div>
                 
                 <div class="col-md-6">
@@ -422,24 +596,26 @@ async def register_page(request: Request, db: AsyncSession = Depends(get_db)):
 
             <div class="payment-alert mb-5">
                 <h6 class="fw-800 mb-4 text-warning"><i class="fas fa-wallet me-2"></i>Оплата підписки</h6>
-                <div id="paymentAmountText" class="fs-4 fw-800 mb-4 text-white">До сплати: <b class='text-white'>{p1_total_html} ₴</b> <span class='small opacity-40 fw-500'>({fmt_p(p1_final_base)} + {fmt_p(p1_final_setup)})</span></div>
+                <div id="paymentAmountText" class="fs-4 fw-800 mb-4 text-white">До сплати: <b class='text-white'>{p1_total_html} ₴</b></div>
                 
                 <div class="d-flex justify-content-center gap-3 mb-4">
-                    <button type="button" class="btn-secondary-glass active" id="btnIban" onclick="showPayment('iban')">IBAN реквізити</button>
+                    <button type="button" class="btn-secondary-glass active" id="btnIban" onclick="showPayment('iban')">Реквізити</button>
                     <button type="button" class="btn-secondary-glass" id="btnQr" onclick="showPayment('qr')">QR-код</button>
                 </div>
                 
                 <div id="payIban" class="p-4 rounded-4 mb-4" style="background: rgba(255,255,255,0.015); border: 0.5px solid var(--glass-border); cursor: pointer;" onclick="copyIban()">
-                    <div id="ibanText" class="fw-800 fs-5 mb-3 text-white" style="letter-spacing: 1px;">{iban}</div>
+                    <div id="paymentCountryText" class="small opacity-50 fw-700 text-uppercase mb-2">Україна</div>
+                    <div id="ibanText" class="fw-800 fs-6 mb-3 text-white text-start" style="letter-spacing: 0.3px; line-height: 1.7;"></div>
                     <div class="d-flex justify-content-center align-items-center gap-3">
-                        <span id="ibanBadge" class="badge bg-primary bg-opacity-10 text-primary px-3 py-2" style="border: 0.5px solid rgba(96, 165, 250, 0.2);">{bank_name}</span>
+                        <span id="ibanBadge" class="badge bg-primary bg-opacity-10 text-primary px-3 py-2" style="border: 0.5px solid rgba(96, 165, 250, 0.2);"></span>
                         <span class="small opacity-40 fw-600"><i class="fas fa-copy me-1"></i>Натисніть для копіювання</span>
                     </div>
-                    {f'<div class="small opacity-30 mt-3 fw-500">Отримувач: {receiver}</div>' if receiver else ''}
+                    <div id="paymentReceiver" class="small opacity-30 mt-3 fw-500"></div>
+                    <div id="paymentNote" class="small opacity-50 mt-3 fw-500"></div>
                 </div>
                 
                 <div id="payQr" class="mb-4 text-center" style="display:none;">
-                    <img src="{qr_url}" alt="QR" class="img-fluid rounded-4" style="max-width: 260px; box-shadow: 0 30px 60px rgba(0,0,0,0.4);" onerror="this.style.display='none'; document.getElementById('qrFallback').style.display='block';">
+                    <img id="paymentQrImage" src="{qr_url}" alt="QR" class="img-fluid rounded-4" style="max-width: 260px; box-shadow: 0 30px 60px rgba(0,0,0,0.4);" onerror="this.style.display='none'; document.getElementById('qrFallback').style.display='block';">
                     <div id="qrFallback" class="opacity-20 py-5" style="display:none;"><i class="fas fa-qrcode fa-5x"></i><p class="mt-3">QR-код не налаштовано</p></div>
                 </div>
                 
@@ -467,6 +643,48 @@ async def register_page(request: Request, db: AsyncSession = Depends(get_db)):
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+    const paymentProfiles = {payment_profiles_json};
+    function escapeHtml(value) {{
+        return String(value || '').replace(/[&<>"']/g, ch => ({{
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        }}[ch]));
+    }}
+    function getPaymentProfile() {{
+        const country = document.getElementById('paymentCountry')?.value || 'ua';
+        return paymentProfiles[country] || paymentProfiles.ua;
+    }}
+    function updatePaymentCountry() {{
+        const profile = getPaymentProfile();
+        document.getElementById('paymentCountryText').innerText = profile.country || '';
+        document.getElementById('btnIban').innerText = profile.method || 'Реквізити';
+        document.getElementById('ibanBadge').innerText = profile.bank || '';
+        document.getElementById('paymentReceiver').innerText = profile.receiver ? `Отримувач: ${{profile.receiver}}` : '';
+        document.getElementById('paymentNote').innerText = profile.note || '';
+        
+        const lines = (profile.lines || []).filter(row => row[1]);
+        const detailHtml = lines.length
+            ? lines.map(row => `<div class="d-flex justify-content-between gap-3 border-bottom border-secondary border-opacity-10 py-1"><span class="opacity-50">${{escapeHtml(row[0])}}</span><span class="text-end">${{escapeHtml(row[1])}}</span></div>`).join('')
+            : '<div class="text-center opacity-50 py-3">Реквізити не налаштовано</div>';
+        document.getElementById('ibanText').innerHTML = detailHtml;
+
+        const qr = document.getElementById('paymentQrImage');
+        const fallback = document.getElementById('qrFallback');
+        if (profile.qr_url) {{
+            qr.src = profile.qr_url;
+            qr.style.display = 'inline-block';
+            fallback.style.display = 'none';
+        }} else {{
+            qr.removeAttribute('src');
+            qr.style.display = 'none';
+            fallback.style.display = 'block';
+        }}
+
+        if (window.SafeOrbitI18N) window.SafeOrbitI18N.apply();
+    }}
     function showPayment(type) {{
         const isIban = type === 'iban';
         document.getElementById('payIban').style.display = isIban ? 'block' : 'none';
@@ -476,6 +694,7 @@ async def register_page(request: Request, db: AsyncSession = Depends(get_db)):
     }}
     function copyIban() {{
         const iban = document.getElementById('ibanText').innerText;
+        if (!iban.trim()) return;
         navigator.clipboard.writeText(iban).then(() => {{
             const badge = document.getElementById('ibanBadge');
             const old = badge.innerHTML;
@@ -589,15 +808,16 @@ async def register_page(request: Request, db: AsyncSession = Depends(get_db)):
             link.href = '/static/contract_plan1.pdf';
             let origTotal1 = basePlan1 + setupPlan1;
             let htmlPrice = finalDiscount1 > 0 ? `<span class='text-decoration-line-through text-white-50 fs-5 me-2'>${{formatPrice(origTotal1)}} ₴</span>${{formatPrice(total1)}}` : `${{formatPrice(total1)}}`;
-            priceText.innerHTML = `До сплати: <b class='text-white'>${{htmlPrice}} ₴</b> <span class='small opacity-40 fw-500'>(${{formatPrice(finalBase1)}} + ${{formatPrice(finalSetup1)}})</span>`;
+            priceText.innerHTML = `До сплати: <b class='text-white'>${{htmlPrice}} ₴</b>`;
         }} else {{
             link.href = '/static/contract_plan2.pdf';
             let origTotal2 = basePlan2 + supportPlan2;
             let htmlPrice = finalDiscount2 > 0 ? `<span class='text-decoration-line-through text-white-50 fs-5 me-2'>${{formatPrice(origTotal2)}} ₴</span>${{formatPrice(total2)}}` : `${{formatPrice(total2)}}`;
-            priceText.innerHTML = `До сплати: <b class='text-white'>${{htmlPrice}} ₴</b> <span class='small opacity-40 fw-500'>(${{formatPrice(finalBase2)}} + ${{formatPrice(finalSupport2)}})</span>`;
+            priceText.innerHTML = `До сплати: <b class='text-white'>${{htmlPrice}} ₴</b>`;
         }}
     }}
     document.addEventListener('DOMContentLoaded', () => {{
+        updatePaymentCountry();
         showPayment('iban');
         updatePlan();
     }});
@@ -606,7 +826,7 @@ async def register_page(request: Request, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/register")
-async def register_post(name: str = Form(...), phone: str = Form(...), password: str = Form(...), type: str = Form(...), retail_subcategory: str = Form(None), plan_type: str = Form("plan1"), applied_promo: Optional[str] = Form(None), utm_source: Optional[str] = Form(None), utm_medium: Optional[str] = Form(None), utm_campaign: Optional[str] = Form(None), receipt: UploadFile = File(...), nda_file: UploadFile = File(...), contract_file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+async def register_post(name: str = Form(...), phone: str = Form(...), password: str = Form(...), type: str = Form(...), retail_subcategory: str = Form(None), payment_country: str = Form("ua"), plan_type: str = Form("plan1"), applied_promo: Optional[str] = Form(None), utm_source: Optional[str] = Form(None), utm_medium: Optional[str] = Form(None), utm_campaign: Optional[str] = Form(None), receipt: UploadFile = File(...), nda_file: UploadFile = File(...), contract_file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
     existing = (await db.execute(select(User).where(User.username == phone))).scalar_one_or_none()
     if existing: return HTMLResponse("Цей номер вже зареєстровано. Поверніться назад.", status_code=400)
     
@@ -665,7 +885,8 @@ async def register_post(name: str = Form(...), phone: str = Form(...), password:
         elif settings and getattr(settings, 'discount_duration_months', 0) > 0:
             discount_ends_at = datetime.now(UA_TZ).replace(tzinfo=None) + timedelta(days=30 * settings.discount_duration_months)
 
-    nb = Business(name=name, type=type, retail_subcategory=retail_subcategory if type == 'retail' else None, plan_type=plan_type, contract_url=f"/{f_contract}", nda_url=f"/{f_nda}", is_active=False, payment_status="pending", receipt_url=f"/{f_receipt}", subscription_discount=total_discount, discount_ends_at=discount_ends_at, utm_source=utm_source, utm_medium=utm_medium, utm_campaign=utm_campaign)
+    billing_country = payment_country if payment_country in ("ua", "us") else "ua"
+    nb = Business(name=name, type=type, retail_subcategory=retail_subcategory if type == 'retail' else None, billing_country=billing_country, plan_type=plan_type, contract_url=f"/{f_contract}", nda_url=f"/{f_nda}", is_active=False, payment_status="pending", receipt_url=f"/{f_receipt}", subscription_discount=total_discount, discount_ends_at=discount_ends_at, utm_source=utm_source, utm_medium=utm_medium, utm_campaign=utm_campaign)
     db.add(nb); await db.commit(); await db.refresh(nb)
     nu = User(username=phone, password=hash_password(password), role="owner", business_id=nb.id)
     db.add(nu); await db.commit()
@@ -675,10 +896,11 @@ async def register_post(name: str = Form(...), phone: str = Form(...), password:
     chat_id = superadmin.tg_chat_id if superadmin and getattr(superadmin, 'tg_chat_id', None) else SUPERADMIN_TG_CHAT_ID
 
     if bot_token and chat_id:
+        country_label = "США" if billing_country == "us" else "Україна"
         if plan_type == "plan1":
-            msg = f"🆕 Нова заявка на підключення!\nБізнес: {name}\nТелефон: {phone}\nТариф: Базовий (11 000 грн/міс)"
+            msg = f"🆕 Нова заявка на підключення!\nБізнес: {name}\nТелефон: {phone}\nКраїна оплати: {country_label}\nТариф: Базовий (11 000 грн/міс)"
         else:
-            msg = f"🚀 🔥 УВАГА! НОВА VIP ЗАЯВКА!\nБізнес: {name}\nТелефон: {phone}\nТариф: PRO (53 000 грн + 1 100 грн/міс) 💰\nОчікує перевірки!"
+            msg = f"🚀 🔥 УВАГА! НОВА VIP ЗАЯВКА!\nБізнес: {name}\nТелефон: {phone}\nКраїна оплати: {country_label}\nТариф: PRO (53 000 грн + 1 100 грн/міс) 💰\nОчікує перевірки!"
         try:
             async with httpx.AsyncClient() as client_tg:
                 await client_tg.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json={"chat_id": chat_id, "text": msg})
@@ -713,7 +935,7 @@ async def pending_activation_page(id: int, db: AsyncSession = Depends(get_db)):
         reason_html = ""
         desc = "Ваш акаунт наразі перевіряється адміністратором. Ви зможете увійти в систему після підтвердження."
 
-    return HTMLResponse(f"""<!DOCTYPE html><html data-bs-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"><title>{title}</title>
+    return HTMLResponse(f"""<!DOCTYPE html><html lang="uk" data-bs-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"><title>{title}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -726,7 +948,8 @@ async def pending_activation_page(id: int, db: AsyncSession = Depends(get_db)):
         .btn {{ width: 100%; min-height: 44px; display: flex; align-items: center; justify-content: center; }}
     }}
     </style>
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet"></head>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <script defer src="/static/i18n.js"></script></head>
     <body><div class="text-center auth-card">
         <div class="mb-4"><span class="fa-stack fa-3x"><i class="fas fa-circle fa-stack-2x text-{color} opacity-25"></i><i class="fas {icon} fa-stack-1x text-{color}"></i></span></div>
         <h2 class="fw-800 text-white mb-3">{title}</h2>
@@ -749,6 +972,7 @@ async def login_page():
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script defer src="/static/i18n.js"></script>
     <style>
     *, *::before, *::after { box-sizing: border-box; }
     html, body { overflow-x: hidden; width: 100%; max-width: 100vw; margin: 0; padding: 0; }
@@ -1002,7 +1226,7 @@ async def login_demo(request: Request, db: AsyncSession = Depends(get_db)):
             reason_html = ""
             desc = "Доступ до вашого акаунту тимчасово призупинено.<br>Зверніться до адміністратора."
 
-        return HTMLResponse(f"""<!DOCTYPE html><html data-bs-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"><title>{title}</title>
+        return HTMLResponse(f"""<!DOCTYPE html><html lang="uk" data-bs-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"><title>{title}</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
         <style>
@@ -1015,7 +1239,8 @@ async def login_demo(request: Request, db: AsyncSession = Depends(get_db)):
             .btn {{ width: 100%; min-height: 44px; display: flex; align-items: center; justify-content: center; }}
         }}
         </style>
-        <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet"></head>
+        <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+        <script defer src="/static/i18n.js"></script></head>
         <body><div class="text-center auth-card">
             <div class="mb-4"><span class="fa-stack fa-3x"><i class="fas fa-circle fa-stack-2x text-{color} opacity-25"></i><i class="fas {icon} fa-stack-1x text-{color}"></i></span></div>
             <h2 class="fw-800 text-white mb-3">{title}</h2>
@@ -1057,7 +1282,7 @@ async def login(request: Request, username: str = Form(...), password: str = For
             reason_html = ""
             desc = "Доступ до вашого акаунту тимчасово призупинено.<br>Зверніться до адміністратора."
 
-        return HTMLResponse(f"""<!DOCTYPE html><html data-bs-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"><title>{title}</title>
+        return HTMLResponse(f"""<!DOCTYPE html><html lang="uk" data-bs-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"><title>{title}</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
         <style>
@@ -1070,7 +1295,8 @@ async def login(request: Request, username: str = Form(...), password: str = For
             .btn {{ width: 100%; min-height: 44px; display: flex; align-items: center; justify-content: center; }}
         }}
         </style>
-        <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet"></head>
+        <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+        <script defer src="/static/i18n.js"></script></head>
         <body><div class="text-center auth-card">
             <div class="mb-4"><span class="fa-stack fa-3x"><i class="fas fa-circle fa-stack-2x text-{color} opacity-25"></i><i class="fas {icon} fa-stack-1x text-{color}"></i></span></div>
             <h2 class="fw-800 text-white mb-3">{title}</h2>
